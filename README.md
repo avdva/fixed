@@ -1,4 +1,4 @@
-# fixed [![GoDoc](https://godoc.org/github.com/avdva/fixed?status.svg)](http://godoc.org/github.com/avdva/fixed)
+# fixed [![GoDoc](https://godoc.org/github.com/avdva/fixed?status.svg)](http://godoc.org/github.com/avdva/fixed) [![CircleCI Build Status](https://circleci.com/gh/avdva/fixed.svg?style=shield)](https://circleci.com/gh/avdva/fixed)
 `fixed` implements a fixed-point number, where both mantissa and exponent are stored in a single number.
 Can be used to represent currency rates with up to 16 digits of precision.
 
