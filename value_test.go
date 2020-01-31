@@ -362,7 +362,7 @@ func TestMantUint64(t *testing.T) {
 		{fromMantAndExp(123456, -5), -5, 123456},
 		{fromMantAndExp(12345, -4), -5, 123450},
 		{fromMantAndExp(1234, -3), -5, 123400},
-		{fromMantAndExp(0, 0), maxExponent + 1, maxValue},
+		{fromMantAndExp(0, 0), maxExponent + 1, Max},
 		{fromMantAndExp(0, 0), minExponent - 1, 0},
 		{fromMantAndExp(maxMantissa, 5), 10, maxMantissa / 100000},
 		{fromMantAndExp(maxMantissa, 5), 4, maxMantissa},
@@ -372,6 +372,28 @@ func TestMantUint64(t *testing.T) {
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			a.Equal(item.mant, item.v.ToExp(item.exp).MantUint64())
+		})
+	}
+}
+
+func TestEq(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b Value
+		eq   bool
+	}{
+		{0, 0, true},
+		{fromMantAndExp(123456, 5), fromMantAndExp(123456, 5), true},
+		{fromMantAndExp(123456, -5), fromMantAndExp(123456, -5), true},
+		{fromMantAndExp(12345600, 5), fromMantAndExp(123456, 7), true},
+		{fromMantAndExp(123456, -5), fromMantAndExp(12345600, -7), true},
+
+		{fromMantAndExp((maxMantissa/100)*100, 5), fromMantAndExp(maxMantissa/100, 7), true},
+		{fromMantAndExp((maxMantissa/100)*100, minExponent), fromMantAndExp(maxMantissa/100, minExponent+2), true},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(test.eq, test.a.Eq(test.b))
 		})
 	}
 }
