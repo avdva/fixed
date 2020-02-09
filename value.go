@@ -95,7 +95,6 @@ type posError struct {
 }
 
 func newPosError(err string, pos int) *posError {
-	fmt.Printf("%X\n", (1<<(expBits-1) + 1))
 	return &posError{err: err, pos: pos}
 }
 
