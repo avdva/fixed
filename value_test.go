@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -161,6 +163,7 @@ func TestNormalize(t *testing.T) {
 
 		{fromMantAndExp(12345, maxExponent), fromMantAndExp(123450, maxExponent-1).Normalized()},
 		{fromMantAndExp(123450, maxExponent), fromMantAndExp(1234500, maxExponent-1).Normalized()},
+		{fromMantAndExp(1234500, maxExponent), fromMantAndExp(12345000, maxExponent-1).Normalized()},
 		{fromMantAndExp(1, minExponent+16), fromMantAndExp(1e16, minExponent).Normalized()},
 	}
 	for i, item := range tests {
@@ -362,7 +365,7 @@ func TestMantUint64(t *testing.T) {
 		{fromMantAndExp(123456, -5), -5, 123456},
 		{fromMantAndExp(12345, -4), -5, 123450},
 		{fromMantAndExp(1234, -3), -5, 123400},
-		{fromMantAndExp(0, 0), maxExponent + 1, maxValue},
+		{fromMantAndExp(0, 0), maxExponent + 1, maxMantissa},
 		{fromMantAndExp(0, 0), minExponent - 1, 0},
 		{fromMantAndExp(maxMantissa, 5), 10, maxMantissa / 100000},
 		{fromMantAndExp(maxMantissa, 5), 4, maxMantissa},
@@ -374,4 +377,109 @@ func TestMantUint64(t *testing.T) {
 			a.Equal(item.mant, item.v.ToExp(item.exp).MantUint64())
 		})
 	}
+}
+
+func TestEq(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b Value
+		eq   bool
+	}{
+		{0, 0, true},
+		{fromMantAndExp(123456, 5), fromMantAndExp(123456, 5), true},
+		{fromMantAndExp(123456, -5), fromMantAndExp(123456, -5), true},
+		{fromMantAndExp(12345600, 5), fromMantAndExp(123456, 7), true},
+		{fromMantAndExp(123456, -5), fromMantAndExp(12345600, -7), true},
+		{Min, fromMantAndExp(minMantissa, minExponent), true},
+		{Max, fromMantAndExp(maxMantissa, maxExponent), true},
+
+		{fromMantAndExp((maxMantissa/100)*100, 5), fromMantAndExp(maxMantissa/100, 7), true},
+		{fromMantAndExp((maxMantissa/100)*100, minExponent), fromMantAndExp(maxMantissa/100, minExponent+2), true},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equalf(test.eq, test.a.Eq(test.b), "%#v %#v", test.a, test.b)
+			a.Equalf(test.eq, test.b.Eq(test.a), "%#v %#v", test.a, test.b)
+		})
+	}
+}
+
+func TestCmp(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b Value
+		cmp  int
+	}{
+		{fromMantAndExp(0, 5), fromMantAndExp(0, -5), 0},
+		{fromMantAndExp(123456, 5), fromMantAndExp(123456, 5), 0},
+		{fromMantAndExp(123457, 5), fromMantAndExp(123456, 5), 1},
+		{fromMantAndExp(123456, -5), fromMantAndExp(123456, -5), 0},
+		{fromMantAndExp(12345600, 5), fromMantAndExp(123456, 7), 0},
+		{fromMantAndExp(12345700, 5), fromMantAndExp(123456, 7), 1},
+		{fromMantAndExp(123456, -5), fromMantAndExp(12345600, -7), 0},
+		{fromMantAndExp(123456, -5), fromMantAndExp(12345700, -7), -1},
+
+		{fromMantAndExp((maxMantissa/100)*100, 5), fromMantAndExp(maxMantissa/100, 7), 0},
+		{fromMantAndExp((maxMantissa/100)*100, minExponent), fromMantAndExp(maxMantissa/100, minExponent+2), 0},
+
+		{fromMantAndExp(123456, 5), fromMantAndExp(123450, 5), 1},
+
+		{fromMantAndExp(123456, 5), fromMantAndExp(12345, 6), 1},
+		{Min, fromMantAndExp(2, minExponent), -1},
+
+		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa-1, 0), 1},
+		{fromMantAndExp(maxMantissa, maxExponent), fromMantAndExp(maxMantissa-1, maxExponent), 1},
+		{fromMantAndExp(maxMantissa, minExponent), fromMantAndExp(maxMantissa-1, minExponent), 1},
+
+		{0, 0, 0},
+		{fromMantAndExp(0, 100), fromMantAndExp(0, -100), 0},
+		{fromMantAndExp(0, 100), fromMantAndExp(1, -100), -1},
+		{fromMantAndExp(0, 100), fromMantAndExp(0, -100), 0},
+
+		{fromMantAndExp(maxMantissa/10, 0), fromMantAndExp(maxMantissa, -1), -1},
+		{fromMantAndExp(maxMantissa/100, 0), fromMantAndExp(maxMantissa, -2), -1},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(test.cmp, test.a.Cmp(test.b))
+			a.Equal(-test.cmp, test.b.Cmp(test.a))
+		})
+	}
+}
+
+func TestDecimalDigits(t *testing.T) {
+	a := assert.New(t)
+	tests := []uint64{0, 1, 9, 10, 11, 100, 1000, 1e10, maxMantissa, math.MaxUint64}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(uint64Len(test), decimalDigits(test))
+		})
+	}
+}
+
+func BenchmarkEq(b *testing.B) {
+	rnd := rand.New(rand.NewSource(time.Now().Unix()))
+	for i := 0; i < b.N; i++ {
+		v1 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v2 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v1.Eq(v2)
+	}
+}
+
+func BenchmarkCmp(b *testing.B) {
+	rnd := rand.New(rand.NewSource(time.Now().Unix()))
+	for i := 0; i < b.N; i++ {
+		v1 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v2 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v1.Cmp(v2)
+	}
+}
+
+func uint64Len(value uint64) int {
+	result := 1
+	for value > 9 {
+		value /= 10
+		result++
+	}
+	return result
 }

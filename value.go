@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"strconv"
 	"strings"
 	"unicode"
@@ -36,12 +37,21 @@ const (
 var (
 	zero Value
 
-	decimalFactorTable = []uint64{ // up to 1e18
+	decimalFactorTable = [...]uint64{ // up to 1e19
 		1, 10, 100, 1000, 10000,
 		100000, 1000000, 10000000, 100000000, 1000000000, 10000000000,
 		100000000000, 1000000000000, 10000000000000, 100000000000000,
 		1000000000000000, 10000000000000000, 100000000000000000,
-		1000000000000000000,
+		1000000000000000000, 10000000000000000000,
+	}
+	digitsHelper = [...]int{
+		0, 0, 0, 0, 1, 1, 1, 2, 2, 2,
+		3, 3, 3, 3, 4, 4, 4, 5, 5, 5,
+		6, 6, 6, 6, 7, 7, 7, 8, 8, 8,
+		9, 9, 9, 9, 10, 10, 10, 11, 11, 11,
+		12, 12, 12, 12, 13, 13, 13, 14, 14, 14,
+		15, 15, 15, 15, 16, 16, 16, 17, 17, 17,
+		18, 18, 18, 18, 19,
 	}
 
 	// 145 zeros, 128 for max exponent, 17 for max mantissa
@@ -67,9 +77,16 @@ const (
 	maxExponent = (1<<(expBits-1) - 1)
 	minExponent = -maxExponent
 	maxMantissa = (1<<(bitsInNumber-expBits) - 1)
-	maxValue    = maxMantissa | maxExponent
+	minMantissa = 1
 
 	delim = '.'
+)
+
+const (
+	// Max is the maximum possible fixed-point value.
+	Max = Value(number(maxExponent)<<mantBits | (maxMantissa & mantMask))
+	// Min is the minimum possible fixed-point value.
+	Min = Value(number((1<<(expBits-1)+1))<<mantBits | minMantissa)
 )
 
 type posError struct {
@@ -91,7 +108,14 @@ type (
 )
 
 // Value is a positive fixed-point number.
-// 8 high bits are used for exponent, the others are for mantissa.
+// It currently uses a uint64 value as a data type, where
+// 8 bits are used for exponent and 56 for mantissa.
+//   63      55                                                     0
+//   ________|_______________________________________________________
+//   mmmmmmmmeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+//
+// Negative numbers aren't currently supported.
+// Value can be useful for representing numbers like prices in financial services.
 type Value number
 
 func exp(v Value) expType {
@@ -111,6 +135,7 @@ func fromMantAndExp(mant number, exp expType) Value {
 }
 
 // FromUint64 returns a value for given uint64 number.
+// Returns an error if v if exceeds the maximum mantissa.
 func FromUint64(v uint64) (Value, error) {
 	if v > maxMantissa {
 		return zero, errRange
@@ -119,6 +144,7 @@ func FromUint64(v uint64) (Value, error) {
 }
 
 // FromMantAndExp returns a value for given mantissa and exponent.
+// Returns an error, if (mant, exp) pair represents a number out of range.
 func FromMantAndExp(mant uint64, exp int8) (Value, error) {
 	if mant > maxMantissa || exp > maxExponent || exp < minExponent {
 		return zero, errRange
@@ -127,6 +153,7 @@ func FromMantAndExp(mant uint64, exp int8) (Value, error) {
 }
 
 // FromFloat64 returns a value for given float64.
+// Returns an error for nagative values, infinities, and not-a-numbers.
 func FromFloat64(v float64) (Value, error) {
 	if v < 0 || math.IsInf(v, 0) || math.IsNaN(v) {
 		return zero, fmt.Errorf("bad float number")
@@ -143,7 +170,7 @@ func FromFloat64(v float64) (Value, error) {
 	}
 	mant, e := decimalMantissa(v, e, 1e-10)
 	if e > maxExponent || mant > maxMantissa {
-		return maxValue, errRange
+		return Max, errRange
 	}
 	return fromMantAndExp(number(mant), expType(e)).Normalized(), nil
 }
@@ -171,6 +198,7 @@ func FromString(s string) (Value, error) {
 }
 
 // MarshalJSON marshals value according to current JSONMode.
+// See JSONMode and JSONMode* constants.
 func (v Value) MarshalJSON() ([]byte, error) {
 	return v.toJSON(JSONMode), nil
 }
@@ -202,7 +230,7 @@ func (v Value) toJSON(mode int) []byte {
 	}
 }
 
-// UnmarshalJSON unmarshals a string, float, and an object into a value.
+// UnmarshalJSON unmarshals a string, float, or an object into a value.
 func (v *Value) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("empty json")
@@ -338,10 +366,54 @@ func (v Value) MantUint64() uint64 {
 	return uint64(mant(v))
 }
 
-// ToExp changes the mantissa of v so, that v = m * 10e'exp',
+// Eq returns true, if both values represent the same number.
+func (v Value) Eq(other Value) bool {
+	if v == other {
+		return true
+	}
+	return v.Normalized() == other.Normalized()
+}
+
+// Cmp compares two values.
+// Returns -1 if a < b, 0 if a == b, 1 if a > b
+func (v Value) Cmp(other Value) int {
+	m1, e1 := split(v)
+	m2, e2 := split(other)
+	ediff := int(e1 - e2)
+	if ediff == 0 || m1 == 0 || m2 == 0 {
+		return uint64Cmp(m1, m2)
+	}
+	maxDigit1 := int(e1) + decimalDigits(m1)
+	maxDigit2 := int(e2) + decimalDigits(m2)
+	if maxDigit1 > maxDigit2 {
+		return 1
+	} else if maxDigit1 < maxDigit2 {
+		return -1
+	}
+	if ediff > 0 {
+		m1 *= pow10(ediff)
+	} else {
+		m2 *= pow10(-ediff)
+	}
+	return uint64Cmp(m1, m2)
+}
+
+func uint64Cmp(a, b uint64) int {
+	switch {
+	case a > b:
+		return 1
+	case a < b:
+		return -1
+	default:
+		return 0
+	}
+}
+
+// ToExp changes the mantissa of v so, that v = m * 10e'exp'.
+// As a result, mantissa can lose some digits in precision, become zero, or Max.
 func (v Value) ToExp(exp int) Value {
 	if exp > maxExponent {
-		return maxValue
+		return Max
 	}
 	if exp < minExponent {
 		return fromMantAndExp(0, minExponent)
@@ -367,7 +439,7 @@ func (v Value) ToExp(exp int) Value {
 	return fromMantAndExp(m, expType(exp))
 }
 
-// Uint64 returns integer part of the value.
+// Uint64 returns the value as a uint64 number.
 func (v Value) Uint64() uint64 {
 	value, _ := v.toUint64()
 	return value
@@ -384,13 +456,13 @@ func (v Value) toUint64() (value uint64, exact bool) {
 	}
 	p := pow10(abs(int(e)))
 	if p == 0 {
-		return maxValue, false
+		return maxMantissa, false
 	}
 	if e < 0 {
 		return m / p, trailingZeros(m) >= int(-e)
 	}
 	intPart, frac := maxMantissa/m, maxMantissa%m
-	e2 := uint64Len(intPart) - 1
+	e2 := decimalDigits(intPart) - 1
 	if e2 > int(e) || e2 == int(e) && maxMantissa-frac <= intPart*m {
 		return m * p, true
 	}
@@ -408,7 +480,7 @@ func (v Value) GoString() string {
 	return v.String() + fmt.Sprintf(" {%v, %v}", m, e)
 }
 
-// String returns string representation of the value.
+// String returns a string representation of the value.
 func (v Value) String() string {
 	if mant(v) == 0 {
 		return "0"
@@ -443,6 +515,9 @@ func (v Value) toStringsBuilder(builder *strings.Builder) {
 }
 
 // Normalized eliminates trailing zeros in the fractional part.
+// The process basically inceases the exponent, and stops,
+// if it reaches its maximum value, so that it is possible,
+// that that mantissa has trailing zeros.
 func (v Value) Normalized() Value {
 	v.normalize()
 	return v
@@ -476,22 +551,32 @@ func pow10(pow int) uint64 {
 	return decimalFactorTable[pow]
 }
 
-func int64Len(value int64) int {
+func int64DecimalDigits(value int64) int {
 	result := 0
 	if value < 0 {
 		result++
 		value = -value
 	}
-	return result + uint64Len(uint64(value))
+	return result + decimalDigits(uint64(value))
 }
 
-func uint64Len(value uint64) int {
-	result := 1
-	for value > 9 {
-		value /= 10
-		result++
+func binaryDigits(value uint64) int {
+	return int(8*unsafe.Sizeof(uint64(0))) - bits.LeadingZeros64(value)
+}
+
+// decimalDigits returns the number of decimal digits needed
+// to represent 'value'.
+// see https://stackoverflow.com/a/25934909
+func decimalDigits(value uint64) int {
+	if value == 0 {
+		return 1
 	}
-	return result
+
+	digits := digitsHelper[binaryDigits(value)]
+	if value >= decimalFactorTable[digits] {
+		digits++
+	}
+	return digits
 }
 
 func trailingZeros(value uint64) int {
@@ -507,12 +592,12 @@ func trailingZeros(value uint64) int {
 }
 
 func calcMeLen(v Value) int {
-	return jsonLen + uint64Len(mant(v)) + int64Len(int64(exp(v)))
+	return jsonLen + decimalDigits(mant(v)) + int64DecimalDigits(int64(exp(v)))
 }
 
 func calcStrLen(v Value) int {
 	v = v.Normalized()
-	mantLen := uint64Len(mant(v))
+	mantLen := decimalDigits(mant(v))
 	// the length of the string. 2 for a pair of quotes plus len of mantissa
 	sLen := 2 + mantLen
 	if e := int(exp(v)); e > 0 { // `exp` trailing zeros
