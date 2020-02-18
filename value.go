@@ -76,6 +76,7 @@ const (
 
 	maxExponent = (1<<(expBits-1) - 1)
 	minExponent = -maxExponent
+	// maxMantissa is 72057594037927935 for a (8,56) number
 	maxMantissa = (1<<(bitsInNumber-expBits) - 1)
 	minMantissa = 1
 
@@ -409,6 +410,52 @@ func uint64Cmp(a, b uint64) int {
 	}
 }
 
+func (v Value) Add(other Value) Value {
+	m1, e1 := split(v)
+	m2, e2 := split(other)
+	// first, check for obvious cases, when one of the arguments is zero
+	if m1 == 0 {
+		if m2 == 0 {
+			return zero
+		}
+		return other
+	}
+	if m2 == 0 {
+		return v
+	}
+	// next, if v1 and v2 have equal exponents, just return the sum.
+	// otherwise, prepare the numbers so, that e1 > e2
+	ediff := int(e1) - int(e2)
+	if ediff == 0 {
+		return addWithExp(m1, m2, e1)
+	} else if ediff < 0 {
+		m1, e1, m2, e2 = m2, e2, m1, e1
+	}
+
+	// try to trim trailing zeros for m2. if OK, return the sum.
+	m2, e2 = trimZeros(m2, e2, e1)
+	if ediff = int(e1) - int(e2); ediff == 0 {
+		return addWithExp(m1, m2, e1)
+	}
+
+	// next, try to increase m1 and decrease e1 so, that e1 == e2.
+	// stop before m1 overflows maxMantissa.
+	maxE := maxMantissa / m1
+	if decimalFactorTable[ediff] <= maxE {
+		return addWithExp(m1*decimalFactorTable[ediff], m2, e2)
+	}
+
+	e := int8(math.Floor(math.Log10(float64(maxE))))
+	m1 *= decimalFactorTable[e]
+	e1 -= e
+
+	if ediff = int(e1) - int(e2); ediff == 0 {
+		return addWithExp(m1, m2, e1)
+	}
+	m2 /= decimalFactorTable[ediff]
+	return addWithExp(m1, m2, e1)
+}
+
 // ToExp changes the mantissa of v so, that v = m * 10e'exp'.
 // As a result, mantissa can lose some digits in precision, become zero, or Max.
 func (v Value) ToExp(exp int) Value {
@@ -519,22 +566,12 @@ func (v Value) toStringsBuilder(builder *strings.Builder) {
 // if it reaches its maximum value, so that it is possible,
 // that that mantissa has trailing zeros.
 func (v Value) Normalized() Value {
-	v.normalize()
-	return v
-}
-
-func (v *Value) normalize() {
-	m, e := split(*v)
+	m, e := split(v)
 	if m == 0 {
-		*v = zero
-		return
+		return zero
 	}
 	// remove trailing zeros
-	for m%10 == 0 && e < maxExponent {
-		m /= 10
-		e++
-	}
-	*v = fromMantAndExp(number(m), e)
+	return fromMantAndExp(trimZeros(m, e, maxExponent))
 }
 
 func abs(val int) int {
@@ -634,12 +671,33 @@ func normFloat64(f float64) (pow float64, exp int) {
 func decimalMantissa(f float64, e int, epsilon float64) (mant uint64, exp int) {
 	const maxPrec = 16
 	var result uint64
-	for i := 0; i < maxPrec; i++ {
+	var i int
+	for ; i < maxPrec; i++ {
 		integ, frac := math.Modf(f * math.Pow10(e+i))
 		result = uint64(integ)
 		if frac < epsilon {
-			return result, -(e + i)
+			break
 		}
 	}
-	return result, -(e + maxPrec)
+	return result, -(e + i)
+}
+
+func trimZeros(m number, e, maxe expType) (number, expType) {
+	for m%10 == 0 && e < maxe {
+		m /= 10
+		e++
+	}
+	return m, e
+}
+
+func addWithExp(m1, m2 number, e expType) Value {
+	res := m1 + m2
+	if res > maxMantissa {
+		if e == maxExponent {
+			return Max
+		}
+		res /= 10
+		e++
+	}
+	return fromMantAndExp(res, e)
 }

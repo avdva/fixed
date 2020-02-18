@@ -447,6 +447,34 @@ func TestCmp(t *testing.T) {
 	}
 }
 
+func TestAdd(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b, result Value
+	}{
+		{zero, zero, zero},
+		{fromMantAndExp(0, 1), zero, zero},
+		{fromMantAndExp(1234567, 0), zero, fromMantAndExp(1234567, 0)},
+		{fromMantAndExp(1234567, 0), fromMantAndExp(1234567, 0), fromMantAndExp(1234567*2, 0)},
+
+		{fromMantAndExp(12345, 5), fromMantAndExp(123450, 4), fromMantAndExp(12345*2, 5)},
+		{fromMantAndExp(12345, 5), fromMantAndExp(123456, 4), fromMantAndExp(123450+123456, 4)},
+
+		{fromMantAndExp(maxMantissa/100, 0), fromMantAndExp(maxMantissa/100, 1), fromMantAndExp(maxMantissa/100+(maxMantissa/100)*10, 0)},
+		{fromMantAndExp(maxMantissa-8, 10), fromMantAndExp(8, 8), fromMantAndExp(maxMantissa-8, 10)},
+		{fromMantAndExp(maxMantissa/100, 10), fromMantAndExp(8, 8), fromMantAndExp((maxMantissa/100)*100+8, 8)},
+
+		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 0), fromMantAndExp((maxMantissa*2)/10, 1)},
+		{fromMantAndExp(maxMantissa-1, maxExponent), fromMantAndExp(maxMantissa, maxExponent), Max},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(test.result, test.a.Add(test.b))
+			a.Equal(test.result, test.b.Add(test.a))
+		})
+	}
+}
+
 func TestDecimalDigits(t *testing.T) {
 	a := assert.New(t)
 	tests := []uint64{0, 1, 9, 10, 11, 100, 1000, 1e10, maxMantissa, math.MaxUint64}
