@@ -463,6 +463,7 @@ func TestAdd(t *testing.T) {
 		{fromMantAndExp(maxMantissa/100, 0), fromMantAndExp(maxMantissa/100, 1), fromMantAndExp(maxMantissa/100+(maxMantissa/100)*10, 0)},
 		{fromMantAndExp(maxMantissa-8, 10), fromMantAndExp(8, 8), fromMantAndExp(maxMantissa-8, 10)},
 		{fromMantAndExp(maxMantissa/100, 10), fromMantAndExp(8, 8), fromMantAndExp((maxMantissa/100)*100+8, 8)},
+		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 8), fromMantAndExp((maxMantissa+maxMantissa/number(1e8))/10, 9)},
 
 		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 0), fromMantAndExp((maxMantissa*2)/10, 1)},
 		{fromMantAndExp(maxMantissa-1, maxExponent), fromMantAndExp(maxMantissa, maxExponent), Max},

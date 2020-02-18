@@ -410,6 +410,9 @@ func uint64Cmp(a, b uint64) int {
 	}
 }
 
+// Add sums two values.
+// If the resulting mantissa overflows maxMantissa, the least significant digits will be truncated.
+// If the result overflows Max, Max is returned.
 func (v Value) Add(other Value) Value {
 	m1, e1 := split(v)
 	m2, e2 := split(other)

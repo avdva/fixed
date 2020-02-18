@@ -1,3 +1,9 @@
+## 0.4.0 (February 18, 2020)
+
+FEATURES:
+
+* value: add `Add` to sum values.
+
 ## 0.3.0 (February 09, 2020)
 
 FEATURES:
