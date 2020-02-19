@@ -14,7 +14,7 @@ It currently uses a uint64 value as a data type, where
 ```
    63      55                                                     0
    ________|_______________________________________________________
-   mmmmmmmmeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+   eeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
 ```
 
 Value can be useful for representing numbers like prices in financial services.

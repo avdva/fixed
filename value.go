@@ -113,7 +113,7 @@ type (
 // 8 bits are used for exponent and 56 for mantissa.
 //   63      55                                                     0
 //   ________|_______________________________________________________
-//   mmmmmmmmeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+//   eeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
 //
 // Negative numbers aren't currently supported.
 // Value can be useful for representing numbers like prices in financial services.
