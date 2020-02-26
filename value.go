@@ -597,10 +597,8 @@ func (v Value) Normalized() Value {
 }
 
 func abs(val int) int {
-	if val < 0 {
-		return -val
-	}
-	return val
+	mask := val >> (unsafe.Sizeof(0)*8 - 1)
+	return (val + mask) ^ mask
 }
 
 func pow10(pow int) uint64 {
