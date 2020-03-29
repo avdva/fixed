@@ -1,3 +1,9 @@
+## 0.5.0 (March 29, 2020)
+
+FEATURES:
+
+* value: add `Mul` to multiply values.
+
 ## 0.4.0 (February 18, 2020)
 
 FEATURES:

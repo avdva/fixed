@@ -43,7 +43,9 @@ func ExampleValue() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%s + %s = %s", v4.String(), v1.String(), v4.Add(v1).String())
+	fmt.Printf("%s + %s = %s\n", v4.String(), v1.String(), v4.Add(v1).String())
+
+	fmt.Printf("%s * %s = %s", v1.String(), v4.String(), v1.Mul(v4).String())
 
 	// Output:
 	// v1 as a float = 1.23456, mantissa = 123456, uint64 = 1
@@ -52,4 +54,5 @@ func ExampleValue() {
 	// json for value: "1.23456"
 	// json for value and JSONModeME: {"m":123456,"e":-5}
 	// 1234560 + 1.23456 = 1234561.23456
+	// 1.23456 * 1234560 = 1524138.3936
 }

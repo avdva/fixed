@@ -399,19 +399,8 @@ func (v Value) Cmp(other Value) int {
 	return uint64Cmp(m1, m2)
 }
 
-func uint64Cmp(a, b uint64) int {
-	switch {
-	case a > b:
-		return 1
-	case a < b:
-		return -1
-	default:
-		return 0
-	}
-}
-
 // Add sums two values.
-// If the resulting mantissa overflows maxMantissa, the least significant digits will be truncated.
+// If the resulting mantissa overflows max mantissa, the least significant digits will be truncated.
 // If the result overflows Max, Max is returned.
 func (v Value) Add(other Value) Value {
 	m1, e1 := split(v)
@@ -429,21 +418,54 @@ func (v Value) Add(other Value) Value {
 	return addWithExp(toEqualExp(m1, m2, e1, e2))
 }
 
+// Mul returns v * other
+// If the result underflows Min, zero is returned.
+// If the rsult overflows Max, Max is returned.
+// If the resulting mantissa overflows max mantissa, the least significant digits will be truncated.
 func (v Value) Mul(other Value) Value {
+
+	v, other = v.Normalized(), other.Normalized()
+
 	m1, e1 := split(v)
 	m2, e2 := split(other)
+
 	// first, check for obvious cases, when one of the arguments is zero
-	if m1&m2 == 0 {
+	if m1 == 0 || m2 == 0 {
 		return zero
 	}
-	m1, m2, e := toEqualExp(m1, m2, e1, e2)
-	hi, lo := bits.Mul64(uint64(m1), uint64(m2))
-	if hi == 0 {
-		if lo <= maxExponent {
-			return fromMantAndExp(lo, e)
-		}
 
+	// a*10^e1 * b*10^e2 = a * b * 10^(e1+e2)
+	e := int(e1) + int(e2)
+	// perform a 128-bit multiplication
+	hi, lo := bits.Mul64(uint64(m1), uint64(m2))
+	if hi > 0 {
+		// the result overflows uint64, so we'll divide it by a factor of 10,
+		// so that it fits a uint64 value again, add that factor to the resulting exponent.
+		powDiv := decimalDigits(hi) + 1
+		toDiv := pow10(powDiv)
+		e += int(powDiv)
+		lo, _ = bits.Div64(hi, lo, toDiv)
 	}
+
+	// fix too large matissa, or too small exponent
+	for (lo > maxMantissa || e < minExponent) && lo > 0 && e+1 < maxExponent {
+		lo /= 10
+		e++
+	}
+
+	// fix too large exponent
+	for e > maxExponent && lo*10 < maxMantissa {
+		lo *= 10
+		e--
+	}
+
+	if lo == 0 || e < minExponent {
+		return zero
+	}
+	if e > maxExponent {
+		return Max
+	}
+	return fromMantAndExp(lo, int8(e))
 }
 
 func toEqualExp(m1, m2 number, e1, e2 expType) (number, number, expType) {
@@ -608,7 +630,7 @@ func pow10(pow int) uint64 {
 	return decimalFactorTable[pow]
 }
 
-func int64DecimalDigits(value int64) int {
+func int64DecimalLen(value int64) int {
 	result := 0
 	if value < 0 {
 		result++
@@ -649,7 +671,7 @@ func trailingZeros(value uint64) int {
 }
 
 func calcMeLen(v Value) int {
-	return jsonLen + decimalDigits(mant(v)) + int64DecimalDigits(int64(exp(v)))
+	return jsonLen + decimalDigits(mant(v)) + int64DecimalLen(int64(exp(v)))
 }
 
 func calcStrLen(v Value) int {
@@ -720,4 +742,15 @@ func addWithExp(m1, m2 number, e expType) Value {
 		e++
 	}
 	return fromMantAndExp(res, e)
+}
+
+func uint64Cmp(a, b uint64) int {
+	switch {
+	case a > b:
+		return 1
+	case a < b:
+		return -1
+	default:
+		return 0
+	}
 }

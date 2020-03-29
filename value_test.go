@@ -476,6 +476,39 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestMul(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b, result Value
+	}{
+		{zero, zero, zero},
+		{fromMantAndExp(0, 1), zero, zero},
+		{fromMantAndExp(1234567, 0), zero, zero},
+		{fromMantAndExp(1234567, 0), fromMantAndExp(1234567, 0), fromMantAndExp(1234567*1234567, 0)},
+		{fromMantAndExp(1234560, 0), fromMantAndExp(123456, -5), fromMantAndExp(15241383936, -4)},
+		{fromMantAndExp(1, maxExponent), fromMantAndExp(1, 4), fromMantAndExp(10000, maxExponent)},
+		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 0), fromMantAndExp(51922968585348274, 17)},
+		{fromMantAndExp(maxMantissa, 1), fromMantAndExp(maxMantissa, 0), fromMantAndExp(51922968585348274, 18)},
+		{fromMantAndExp(1, minExponent), fromMantAndExp(1, -1), zero},
+		{fromMantAndExp(1, minExponent), fromMantAndExp(123456, -3), fromMantAndExp(123, minExponent)},
+		{fromMantAndExp(maxMantissa, minExponent), fromMantAndExp(maxMantissa, -10), fromMantAndExp(51922968585348274, -120)},
+		{fromMantAndExp(maxMantissa, maxExponent), fromMantAndExp(maxMantissa, 0), Max},
+		{fromMantAndExp(11111111111111111, 1), fromMantAndExp(6, 0), fromMantAndExp(66666666666666666, 1)},
+		{fromMantAndExp(11111111111111111, 1), fromMantAndExp(7, 0), fromMantAndExp(7777777777777777, 2)},
+		{fromMantAndExp(111111111111111, 0), fromMantAndExp(500, maxExponent), fromMantAndExp(55555555555555500, maxExponent)},
+		{fromMantAndExp(10000000000000000, 5), fromMantAndExp(maxMantissa, 5), fromMantAndExp(maxMantissa, 26)},
+		{fromMantAndExp(1, minExponent), fromMantAndExp(1, -1), zero},
+		{fromMantAndExp(10, minExponent), fromMantAndExp(1, -1), fromMantAndExp(1, minExponent)},
+		{fromMantAndExp(maxMantissa, minExponent), fromMantAndExp(1, -10), fromMantAndExp(maxMantissa/number(1e10), minExponent)},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(test.result, test.a.Mul(test.b))
+			a.Equal(test.result, test.b.Mul(test.a))
+		})
+	}
+}
+
 func TestDecimalDigits(t *testing.T) {
 	a := assert.New(t)
 	tests := []uint64{0, 1, 9, 10, 11, 100, 1000, 1e10, maxMantissa, math.MaxUint64}
