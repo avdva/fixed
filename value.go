@@ -1,6 +1,6 @@
 // Copyright 2020 Aleksandr Demakin. All rights reserved.
 
-// package fixed implements a fixed-point number, where both mantissa
+// Package fixed implements a fixed-point number, where both mantissa
 // and exponent are stored in a single number.
 // Can be used to represent currency rates with up to 16 digits of precision.
 package fixed
@@ -62,7 +62,7 @@ var (
 	jsonParts = []string{`{"m":`, `,"e":`, `}`}
 	jsonLen   = len(jsonParts[0]) + len(jsonParts[1]) + len(jsonParts[2])
 
-	errRange = fmt.Errorf("value out of range")
+	digitsInMaxMantissa = decimalDigits(maxMantissa)
 )
 
 const (
@@ -79,6 +79,7 @@ const (
 	// maxMantissa is 72057594037927935 for a (8,56) number
 	maxMantissa = (1<<(bitsInNumber-expBits) - 1)
 	minMantissa = 1
+	maxNumber   = 1<<bitsInNumber - 1
 
 	delim = '.'
 )
@@ -136,24 +137,18 @@ func fromMantAndExp(mant number, exp expType) Value {
 }
 
 // FromUint64 returns a value for given uint64 number.
-// Returns an error if v if exceeds the maximum mantissa.
-func FromUint64(v uint64) (Value, error) {
-	if v > maxMantissa {
-		return zero, errRange
-	}
-	return fromMantAndExp(number(v), 0), nil
+// If the number cannot be precisely represented, the least significant digits will be truncated.
+func FromUint64(v uint64) Value {
+	return adjustMantExp(number(v), 0)
 }
 
 // FromMantAndExp returns a value for given mantissa and exponent.
-// Returns an error, if (mant, exp) pair represents a number out of range.
-func FromMantAndExp(mant uint64, exp int8) (Value, error) {
-	if mant > maxMantissa || exp > maxExponent || exp < minExponent {
-		return zero, errRange
-	}
-	return fromMantAndExp(number(mant), exp), nil
+// If the number cannot be precisely represented, the least significant digits will be truncated.
+func FromMantAndExp(mant uint64, exp int8) Value {
+	return adjustMantExp(number(mant), int(exp))
 }
 
-// FromFloat64 returns a value for given float64.
+// FromFloat64 returns a value for given float64 value.
 // Returns an error for nagative values, infinities, and not-a-numbers.
 func FromFloat64(v float64) (Value, error) {
 	if v < 0 || math.IsInf(v, 0) || math.IsNaN(v) {
@@ -162,18 +157,9 @@ func FromFloat64(v float64) (Value, error) {
 	if v == 0 {
 		return zero, nil
 	}
-	m, e := normFloat64(v)
-	if e > maxExponent || e == maxExponent && m > maxMantissa {
-		return zero, errRange
-	}
-	if e < minExponent {
-		return zero, errRange
-	}
+	_, e := normFloat64(v)
 	mant, e := decimalMantissa(v, e, 1e-10)
-	if e > maxExponent || mant > maxMantissa {
-		return Max, errRange
-	}
-	return fromMantAndExp(number(mant), expType(e)).Normalized(), nil
+	return adjustMantExp(number(mant), e).Normalized(), nil
 }
 
 // FromString parses a string into a value.
@@ -184,18 +170,17 @@ func FromString(s string) (Value, error) {
 	}
 	parsed, delimPos, err := parseString(s)
 	if err != nil { // could still be a float
-		f, fltErr := strconv.ParseFloat(s, 64)
-		if fltErr != nil {
-			var pe *posError
-			if errors.As(err, &pe) {
-				pe.pos += offset + 1 // +1 to start indices from 1.
-				err = pe
-			}
-			return zero, fmt.Errorf("parsing failed: %w", err)
+		if f, fltErr := strconv.ParseFloat(s, 64); fltErr == nil {
+			return FromFloat64(f)
 		}
-		return FromFloat64(f)
+		var pe *posError
+		if errors.As(err, &pe) { // try to locate error position.
+			pe.pos += offset + 1 // add what we've trimmed before and +1 to start indices from 1.
+			err = pe
+		}
+		return zero, fmt.Errorf("parsing failed: %w", err)
 	}
-	return fromStringAndDelim(parsed, delimPos)
+	return fromStringAndDelim(parsed, delimPos), nil
 }
 
 // MarshalJSON marshals value according to current JSONMode.
@@ -245,11 +230,7 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &d); err != nil {
 			return err
 		}
-		value, err := FromMantAndExp(d.M, d.E)
-		if err != nil {
-			return err
-		}
-		*v = value
+		*v = FromMantAndExp(d.M, d.E)
 	default:
 		value, err := FromString(string(data))
 		if err != nil {
@@ -260,6 +241,7 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// prepareString cleans the string from ",-,+ symbols, and spaces.
 func prepareString(s string) (prepared string, offset int, err error) {
 	if len(s) == 0 {
 		return "", 0, fmt.Errorf("empty input")
@@ -293,73 +275,88 @@ func prepareString(s string) (prepared string, offset int, err error) {
 }
 
 // parseString checks if the string can be converted into a Value.
-// returns a string, where
-//	- all leading zeros before a delimiter are omitted.
-//	- all trailing zeros after a delimeter are omitted.
-// also returns a delimeter's position, or -1 if if does not present in the string.
-func parseString(s string) (result string, delimPos int, err error) {
+// returns a string without leading and trailing zeros, and an exponent
+func parseString(s string) (result string, e int, err error) {
+	result, delimPos, err := removeLeadingZeros(s)
+	if err != nil {
+		return "", 0, err
+	}
+	result, e = removeTrailingZerosString(result, delimPos)
+	return result, e, nil
+}
+
+func removeLeadingZeros(s string) (result string, delimPos int, err error) {
 	var b strings.Builder
-	delimPos = -1
+	delimPos, firstNonZeroPos := -1, -1
 	for i, r := range s {
 		switch {
 		case '0' <= r && r <= '9':
-			if r == '0' && b.Len() == 0 && delimPos == -1 { // omit leading zeros
-				continue
+			if b.Len() == 0 {
+				if r == '0' { // trim leading zeros
+					continue
+				}
+				firstNonZeroPos = i
 			}
 			b.WriteRune(r)
 		case r == delim:
-			if delimPos >= 0 {
-				return "", -1, newPosError("unexpected delimeter", i)
+			if delimPos != -1 {
+				return "", 0, newPosError("unexpected delimeter", i)
 			}
-			delimPos = b.Len()
+			delimPos = i
 		default:
-			return "", -1, newPosError(fmt.Sprintf("unexpected symbol %q", r), i)
+			return "", 0, newPosError(fmt.Sprintf("unexpected symbol %q", r), i)
 		}
 	}
+	if firstNonZeroPos == -1 { // a zero-only string
+		return "", 0, nil
+	}
+
 	result = b.String()
+
+	// move delimPos to the beginning of the trimmed string
 	if delimPos >= 0 {
-		for { // remove trailing zeros after the delimeter.
-			l := len(result)
-			if l < 2 || result[l-1] != '0' || l <= delimPos {
-				break
-			}
-			result = result[:len(result)-1]
+		if delimPos < firstNonZeroPos {
+			firstNonZeroPos--
 		}
+		delimPos -= firstNonZeroPos
+	} else { // if there is no delim, add one at the end of the string 123 --> 123.
+		delimPos = len(result)
 	}
+
 	return result, delimPos, nil
 }
 
-// fromStringAndDelim parses a string into Value.
-// accepts a string without leading zeros before a delimeter and trailing zeros after the delimeter.
-func fromStringAndDelim(s string, delimPos int) (Value, error) {
-	e := int8(0)
-	if delimPos >= 0 {
-		diff := delimPos - len(s)
-		if diff < minExponent {
-			return zero, errRange
+func removeTrailingZerosString(s string, delimPos int) (result string, e int) {
+	for {
+		l := len(s)
+		if l == 0 || s[l-1] != '0' {
+			break
 		}
-		e = int8(diff)
+		s = s[:l-1]
 	}
-	if trimmed := strings.TrimRight(s, "0"); len(trimmed) < len(s) {
-		diff := len(s) - len(trimmed)
-		if int(e)+diff > maxExponent {
-			return zero, errRange
-		}
-		e += int8(diff)
-		s = trimmed
-	}
-	s = strings.TrimLeft(s, "0")
+	return s, delimPos - len(s)
+}
+
+// fromStringAndDelim parses a string without leading and trailing zeros into Value.
+func fromStringAndDelim(s string, e int) Value {
 	if len(s) == 0 {
-		return zero, nil
+		return zero
+	}
+	if toCut := len(s) - digitsInMaxMantissa; toCut > 0 {
+		expInc := toCut
+		if e < 0 {
+			expInc -= -e
+		}
+		if expInc > 0 {
+			e += expInc
+		}
+		s = s[:digitsInMaxMantissa]
 	}
 	u, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return zero, err
+		panic(err) // should not normally happen
 	}
-	if u > maxMantissa {
-		return zero, errRange
-	}
-	return fromMantAndExp(number(u), e), nil
+	return adjustMantExp(number(u), e)
 }
 
 // MantUint64 returns v's mantissa as is.
@@ -367,12 +364,17 @@ func (v Value) MantUint64() uint64 {
 	return uint64(mant(v))
 }
 
-// Eq returns true, if both values represent the same number.
+// Eq returns true if both values represent the same number.
 func (v Value) Eq(other Value) bool {
 	if v == other {
 		return true
 	}
 	return v.Normalized() == other.Normalized()
+}
+
+// IsZero returns true if the value has zero mantissa.
+func (v Value) IsZero() bool {
+	return mant(v) == 0
 }
 
 // Cmp compares two values.
@@ -415,10 +417,27 @@ func (v Value) Add(other Value) Value {
 	if m2 == 0 {
 		return v
 	}
-	return addWithExp(toEqualExp(m1, m2, e1, e2))
+	return addWithExp(toEqualExp(m1, e1, m2, e2))
 }
 
-// Mul returns v * other
+// sub returns |a-b|.
+func (v Value) sub(other Value) Value {
+	m1, e1 := split(v)
+	m2, e2 := split(other)
+	// first, check for obvious cases, when one of the arguments is zero
+	if m2 == 0 {
+		if m1 == 0 {
+			return zero
+		}
+		return v
+	}
+	if m1 == 0 {
+		return other
+	}
+	return subWithExp(toEqualExp(m1, e1, m2, e2))
+}
+
+// Mul returns v * other.
 // If the result underflows Min, zero is returned.
 // If the rsult overflows Max, Max is returned.
 // If the resulting mantissa overflows max mantissa, the least significant digits will be truncated.
@@ -440,64 +459,165 @@ func (v Value) Mul(other Value) Value {
 	hi, lo := bits.Mul64(uint64(m1), uint64(m2))
 	if hi > 0 {
 		// the result overflows uint64, so we'll divide it by a factor of 10,
-		// so that it fits a uint64 value again, add that factor to the resulting exponent.
+		// so that it fits a uint64 value again, and add that factor to the resulting exponent.
 		powDiv := decimalDigits(hi) + 1
 		toDiv := pow10(powDiv)
 		e += int(powDiv)
 		lo, _ = bits.Div64(hi, lo, toDiv)
 	}
 
-	// fix too large matissa, or too small exponent
-	for (lo > maxMantissa || e < minExponent) && lo > 0 && e+1 < maxExponent {
-		lo /= 10
-		e++
-	}
-
-	// fix too large exponent
-	for e > maxExponent && lo*10 < maxMantissa {
-		lo *= 10
-		e--
-	}
-
-	if lo == 0 || e < minExponent {
-		return zero
-	}
-	if e > maxExponent {
-		return Max
-	}
-	return fromMantAndExp(lo, int8(e))
+	return adjustMantExp(lo, e)
 }
 
-func toEqualExp(m1, m2 number, e1, e2 expType) (number, number, expType) {
+// DivMod calculates such quo and rem, that a = b * quo + rem. If b == 0, Div panics.
+// Quo will be rounded to prec digits.
+// Notice that prec can be negative.
+func (v Value) DivMod(other Value, prec int) (quo, rem Value) {
+	v, other = v.Normalized(), other.Normalized()
+	q, r, e := div(v, other)
+	if r == 0 {
+		return adjustMantExp(q, e).Normalized(), zero
+	}
+	if e < maxExponent {
+		var et expType
+		q, et = trimZeros(q, expType(e), maxExponent)
+		e = int(et)
+	}
+	q, e = roundToPrec(q, e, prec)
+	quo = adjustMantExp(q, e)
+	return quo, v.sub(other.Mul(quo))
+}
+
+func roundToPrec(n number, e, prec int) (number, int) {
+	var toCut int
+	dd := decimalDigits(n)
+	if prec >= 0 {
+		toCut = -e - prec
+	} else {
+		if e < 0 {
+			dd += e
+			if dd <= 0 { // no digits before the decimal point
+				return 0, 0
+			}
+			n /= pow10(-e)
+			e = 0
+		}
+		toCut = -prec
+	}
+	if toCut > 0 {
+		if toCut > dd {
+			toCut = dd
+		}
+		n /= pow10(toCut)
+		e += toCut
+	}
+	return n, e
+}
+
+// Div calculates a/b. If b == 0, Div panics.
+// First, it tries to perform integer division, and if the remainder is zero, returns the result.
+// Otherwise, it returns the result of a float64 division.
+func (v Value) Div(other Value) Value {
+
+	v, other = v.Normalized(), other.Normalized()
+
+	if quo, rem, e := div(v, other); rem == 0 {
+		return adjustMantExp(quo, e).Normalized()
+	}
+
+	return float64Div(v, other)
+}
+
+func float64Div(a, b Value) Value {
+	m1, e1 := split(a)
+	m2, e2 := split(b)
+	if m2 == 0 {
+		return zero
+	}
+	flt := float64(m1) / float64(m2) * math.Pow10(int(e1)-int(e2))
+	result, _ := FromFloat64(flt)
+	return result
+}
+
+func div(v1, v2 Value) (quo, rem number, e int) {
+
+	m1, e1 := split(v1)
+	m2, e2 := split(v2)
+
+	if m2 == 0 {
+		panic("division by zero")
+	}
+	if m1 == 0 {
+		return 0, 0, 0
+	}
+
+	// a*10^e1 / b*10^e2 = (a/b) * 10^(e1-e2)
+	e = int(e1) - int(e2)
+
+	if m1%m2 == 0 {
+		return m1 / m2, 0, e
+	}
+
+	// give it best chances to division.
+	// shift m1 close to the maximum possible number.
+	toMult := log10(maxNumber / m1)
+	m1 *= pow10(toMult)
+	e -= toMult
+
+	return m1 / m2, m1 % m2, e
+}
+
+// toEqualExp changes m1 and m2 in such a way, that e1 == e2.
+// the result can be used to calculate m1+m2, m1-m2.
+// if the difference between the exponents is too big, m2 can lose some (or all) digits.
+func toEqualExp(m1 number, e1 expType, m2 number, e2 expType) (number, number, expType) {
+
+	if e1 >= e2 {
+		return doToEqualExp(m1, e1, m2, e2)
+	}
+
+	r1, r2, re := doToEqualExp(m2, e2, m1, e1)
+	return r2, r1, re
+}
+
+// doToEqualExp is a helper for toEqualExp. it assumes that e1 >= e2.
+func doToEqualExp(m1 number, e1 expType, m2 number, e2 expType) (number, number, expType) {
 	ediff := int(e1) - int(e2)
 	if ediff == 0 {
 		return m1, m2, e1
-	} else if ediff < 0 { // prepare the numbers so, that e1 > e2
-		m1, e1, m2, e2 = m2, e2, m1, e1
 	}
 
-	// try to trim trailing zeros for m2. if OK, return the sum.
+	// try to trim trailing zeros for m2.
+	// if we have enough to increase e2 so that it equals e1, return the sum.
 	m2, e2 = trimZeros(m2, e2, e1)
 	if ediff = int(e1) - int(e2); ediff == 0 {
 		return m1, m2, e1
 	}
 
 	// next, try to increase m1 and decrease e1 so, that e1 == e2.
-	// stop before m1 overflows maxMantissa.
-	maxE := maxMantissa / m1
-	if decimalFactorTable[ediff] <= maxE {
-		return m1 * decimalFactorTable[ediff], m2, e2
+	toMult := log10(maxMantissa / m1)
+	if toMult > ediff {
+		toMult = ediff
 	}
-
-	e := int8(math.Floor(math.Log10(float64(maxE))))
-	m1 *= decimalFactorTable[e]
-	e1 -= e
+	m1 *= pow10(toMult)
+	e1 -= int8(toMult)
 
 	if ediff = int(e1) - int(e2); ediff == 0 {
 		return m1, m2, e1
 	}
-	m2 /= decimalFactorTable[ediff]
+
+	// last resort, decrease m2, lose some digits.
+	if toDiv := pow10(ediff); toDiv > 0 {
+		m2 /= toDiv
+	} else {
+		m2 = 0
+	}
+
 	return m1, m2, e1
+}
+
+func log10(a uint64) int {
+	return decimalDigits(a) - 1
 }
 
 // ToExp changes the mantissa of v so, that v = m * 10e'exp'.
@@ -605,16 +725,14 @@ func (v Value) toStringsBuilder(builder *strings.Builder) {
 	}
 }
 
-// Normalized eliminates trailing zeros in the fractional part.
-// The process basically inceases the exponent, and stops,
-// if it reaches its maximum value, so that it is possible,
-// that that mantissa has trailing zeros.
+// Normalized eliminates trailing zeros in the mantissa.
+// The process increases the exponent, and stops if it exceeds the maximum possible exponent,
+// so that it is possible, that the mantissa will still have trailing zeros.
 func (v Value) Normalized() Value {
 	m, e := split(v)
 	if m == 0 {
 		return zero
 	}
-	// remove trailing zeros
 	return fromMantAndExp(trimZeros(m, e, maxExponent))
 }
 
@@ -643,8 +761,7 @@ func binaryDigits(value uint64) int {
 	return int(8*unsafe.Sizeof(uint64(0))) - bits.LeadingZeros64(value)
 }
 
-// decimalDigits returns the number of decimal digits needed
-// to represent 'value'.
+// decimalDigits returns the number of decimal digits in 'value'.
 // see https://stackoverflow.com/a/25934909
 func decimalDigits(value uint64) int {
 	if value == 0 {
@@ -708,24 +825,24 @@ func normFloat64(f float64) (pow float64, exp int) {
 	return f * math.Pow10(e), e
 }
 
-// decimalMantissa receives a number 'f' and an exponent 'e', such as in the range 1 <= f*(10**e) <= 10
-// it returns decimal mantissa and e, so that mant*(10**-e) ~= f
+// decimalMantissa receives a number 'f' and an exponent 'e', such as 1 <= f*(10**e) <= 10
+// it returns integer mantissa and e, so that abs(mant*(10^-e) - f) < epsilon.
 func decimalMantissa(f float64, e int, epsilon float64) (mant uint64, exp int) {
 	const maxPrec = 16
 	var result uint64
 	var i int
-	for ; i < maxPrec; i++ {
+	for ; ; i++ {
 		integ, frac := math.Modf(f * math.Pow10(e+i))
 		result = uint64(integ)
-		if frac < epsilon {
+		if frac < epsilon || i >= maxPrec {
 			break
 		}
 	}
 	return result, -(e + i)
 }
 
-func trimZeros(m number, e, maxe expType) (number, expType) {
-	for m%10 == 0 && e < maxe {
+func trimZeros(m number, e, eMax expType) (number, expType) {
+	for e < eMax && m%10 == 0 {
 		m /= 10
 		e++
 	}
@@ -744,6 +861,16 @@ func addWithExp(m1, m2 number, e expType) Value {
 	return fromMantAndExp(res, e)
 }
 
+func subWithExp(m1, m2 number, e expType) Value {
+	var res number
+	if m1 >= m2 {
+		res = m1 - m2
+	} else {
+		res = m2 - m1
+	}
+	return fromMantAndExp(res, e)
+}
+
 func uint64Cmp(a, b uint64) int {
 	switch {
 	case a > b:
@@ -753,4 +880,26 @@ func uint64Cmp(a, b uint64) int {
 	default:
 		return 0
 	}
+}
+
+func adjustMantExp(m number, e int) Value {
+	// fix too large matissa, or too small exponent
+	for (m > maxMantissa || e < minExponent) && m > 0 && e+1 < maxExponent {
+		m /= 10
+		e++
+	}
+
+	// fix too large exponent
+	for e > maxExponent && m*10 < maxMantissa {
+		m *= 10
+		e--
+	}
+
+	if m == 0 || e < minExponent {
+		return zero
+	}
+	if e > maxExponent {
+		return Max
+	}
+	return fromMantAndExp(m, expType(e))
 }
