@@ -63,12 +63,17 @@ func TestFromFloat(t *testing.T) {
 		{math.Inf(-1), zero, "bad float number"},
 		{math.NaN(), zero, "bad float number"},
 	}
+	println(maxMantissa)
 	for i, test := range tests {
+		if i != 2 {
+			//continue
+		}
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			v, err := FromFloat64(test.f)
 			if len(test.err) == 0 {
 				if a.NoError(err) {
 					a.Equal(test.v, v)
+					println(exp(v), mant(v))
 					asFloat := test.v.Float64()
 					if asFloat == 0 || test.f == 0 {
 						a.InDelta(0, asFloat, 1e-15)
@@ -147,7 +152,7 @@ func TestFromMantAndExp(t *testing.T) {
 	a := assert.New(t)
 	tests := []struct {
 		m, mExpected number
-		e            int8
+		e            expType
 	}{
 		{0, 0, 0},
 		{123456, 123456, 0},
