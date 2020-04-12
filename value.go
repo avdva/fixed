@@ -70,9 +70,11 @@ const (
 	expBits      = 8
 	mantBits     = bitsInNumber - expBits
 
-	expMask    = 1<<expBits - 1
-	highestBit = 1 << (bitsInNumber - 1)
-	mantMask   = (highestBit - 1 | highestBit) >> expBits
+	expMask           = 1<<expBits - 1
+	highestBit        = 1 << (bitsInNumber - 1)
+	highestExpBitMask = highestBit >> mantBits
+	needEncodeExp     = expBits != 8 && expBits != 16 && expBits != 32
+	mantMask          = (highestBit - 1 | highestBit) >> expBits
 
 	maxExponent = (1<<(expBits-1) - 1)
 	minExponent = -maxExponent
@@ -106,7 +108,7 @@ func (pe posError) Error() string {
 
 type (
 	number  = uint64
-	expType = int8
+	expType = int32
 )
 
 // Value is a positive fixed-point number.
@@ -121,7 +123,21 @@ type (
 type Value number
 
 func exp(v Value) expType {
-	return expType(v >> mantBits & expMask)
+	switch expBits {
+	case 8:
+		return expType(int8(v >> mantBits & expMask))
+	case 16:
+		return expType(int16(v >> mantBits & expMask))
+	case 32:
+		return expType(int32(v >> mantBits & expMask))
+	}
+	rawExp := number(v >> mantBits & expMask)
+	exp := expType(rawExp)
+	if rawExp&highestExpBitMask != 0 { // negative exponent
+		rawExp ^= highestExpBitMask // reset negative bit
+		exp = -expType(rawExp)      // make exponent negative
+	}
+	return exp
 }
 
 func mant(v Value) number {
@@ -133,7 +149,14 @@ func split(v Value) (mantissa number, exponent expType) {
 }
 
 func fromMantAndExp(mant number, exp expType) Value {
-	return Value(number(exp)<<mantBits | (mant & mantMask))
+	if exp < 0 && needEncodeExp {
+		// if the exponent is negative and the count of bits is not 8, 16, 32,
+		// to simplify representation we:
+		exp = -exp                        // encode exp as a positive number
+		exp |= expType(highestExpBitMask) // set the highest bit to one
+	}
+	v := Value(number(exp)<<mantBits | (mant & mantMask))
+	return v
 }
 
 // FromUint64 returns a value for given uint64 number.
@@ -144,8 +167,8 @@ func FromUint64(v uint64) Value {
 
 // FromMantAndExp returns a value for given mantissa and exponent.
 // If the number cannot be precisely represented, the least significant digits will be truncated.
-func FromMantAndExp(mant uint64, exp int8) Value {
-	return adjustMantExp(number(mant), int(exp))
+func FromMantAndExp(mant uint64, exp int32) Value {
+	return adjustMantExp(number(mant), exp)
 }
 
 // FromFloat64 returns a value for given float64 value.
@@ -159,7 +182,7 @@ func FromFloat64(v float64) (Value, error) {
 	}
 	_, e := normFloat64(v)
 	mant, e := decimalMantissa(v, e, 1e-10)
-	return adjustMantExp(number(mant), e).Normalized(), nil
+	return adjustMantExp(number(mant), expType(e)).Normalized(), nil
 }
 
 // FromString parses a string into a value.
@@ -181,6 +204,14 @@ func FromString(s string) (Value, error) {
 		return zero, fmt.Errorf("parsing failed: %w", err)
 	}
 	return fromStringAndDelim(parsed, delimPos), nil
+}
+
+func MustFromString(s string) Value {
+	v, err := FromString(s)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // MarshalJSON marshals value according to current JSONMode.
@@ -356,7 +387,7 @@ func fromStringAndDelim(s string, e int) Value {
 	if err != nil {
 		panic(err) // should not normally happen
 	}
-	return adjustMantExp(number(u), e)
+	return adjustMantExp(number(u), expType(e))
 }
 
 // MantUint64 returns v's mantissa as is.
@@ -421,18 +452,18 @@ func (v Value) Add(other Value) Value {
 }
 
 // sub returns |a-b|.
-func (v Value) sub(other Value) Value {
+func (v Value) sub(other Value) (Value, bool) {
 	m1, e1 := split(v)
 	m2, e2 := split(other)
 	// first, check for obvious cases, when one of the arguments is zero
 	if m2 == 0 {
 		if m1 == 0 {
-			return zero
+			return zero, false
 		}
-		return v
+		return v, false
 	}
 	if m1 == 0 {
-		return other
+		return other, true
 	}
 	return subWithExp(toEqualExp(m1, e1, m2, e2))
 }
@@ -466,7 +497,7 @@ func (v Value) Mul(other Value) Value {
 		lo, _ = bits.Div64(hi, lo, toDiv)
 	}
 
-	return adjustMantExp(lo, e)
+	return adjustMantExp(lo, expType(e))
 }
 
 // DivMod calculates such quo and rem, that a = b * quo + rem. If b == 0, Div panics.
@@ -476,31 +507,30 @@ func (v Value) DivMod(other Value, prec int) (quo, rem Value) {
 	v, other = v.Normalized(), other.Normalized()
 	q, r, e := div(v, other)
 	if r == 0 {
-		return adjustMantExp(q, e).Normalized(), zero
+		return adjustMantExp(q, expType(e)).Normalized(), zero
 	}
 	if e < maxExponent {
-		var et expType
-		q, et = trimZeros(q, expType(e), maxExponent)
-		e = int(et)
+		q, e = trimZeros(q, expType(e), maxExponent)
 	}
 	q, e = roundToPrec(q, e, prec)
-	quo = adjustMantExp(q, e)
-	return quo, v.sub(other.Mul(quo))
+	quo = adjustMantExp(q, expType(e))
+	rem, _ = v.sub(other.Mul(quo))
+	return quo, rem
 }
 
-func roundToPrec(n number, e, prec int) (number, int) {
-	var toCut int
+func roundToPrec(n number, e expType, prec int) (number, expType) {
+	toCut, ei := 0, int(e)
 	dd := decimalDigits(n)
 	if prec >= 0 {
-		toCut = -e - prec
+		toCut = -ei - prec
 	} else {
 		if e < 0 {
-			dd += e
+			dd += ei
 			if dd <= 0 { // no digits before the decimal point
 				return 0, 0
 			}
-			n /= pow10(-e)
-			e = 0
+			n /= pow10(-ei)
+			ei = 0
 		}
 		toCut = -prec
 	}
@@ -509,9 +539,9 @@ func roundToPrec(n number, e, prec int) (number, int) {
 			toCut = dd
 		}
 		n /= pow10(toCut)
-		e += toCut
+		ei += toCut
 	}
-	return n, e
+	return n, expType(ei)
 }
 
 // Div calculates a/b. If b == 0, Div panics.
@@ -522,7 +552,7 @@ func (v Value) Div(other Value) Value {
 	v, other = v.Normalized(), other.Normalized()
 
 	if quo, rem, e := div(v, other); rem == 0 {
-		return adjustMantExp(quo, e).Normalized()
+		return adjustMantExp(quo, expType(e)).Normalized()
 	}
 
 	return float64Div(v, other)
@@ -539,7 +569,7 @@ func float64Div(a, b Value) Value {
 	return result
 }
 
-func div(v1, v2 Value) (quo, rem number, e int) {
+func div(v1, v2 Value) (quo, rem number, e expType) {
 
 	m1, e1 := split(v1)
 	m2, e2 := split(v2)
@@ -552,7 +582,7 @@ func div(v1, v2 Value) (quo, rem number, e int) {
 	}
 
 	// a*10^e1 / b*10^e2 = (a/b) * 10^(e1-e2)
-	e = int(e1) - int(e2)
+	e = e1 - e2
 
 	if m1%m2 == 0 {
 		return m1 / m2, 0, e
@@ -562,7 +592,7 @@ func div(v1, v2 Value) (quo, rem number, e int) {
 	// shift m1 close to the maximum possible number.
 	toMult := log10(maxNumber / m1)
 	m1 *= pow10(toMult)
-	e -= toMult
+	e -= expType(toMult)
 
 	return m1 / m2, m1 % m2, e
 }
@@ -582,7 +612,7 @@ func toEqualExp(m1 number, e1 expType, m2 number, e2 expType) (number, number, e
 
 // doToEqualExp is a helper for toEqualExp. it assumes that e1 >= e2.
 func doToEqualExp(m1 number, e1 expType, m2 number, e2 expType) (number, number, expType) {
-	ediff := int(e1) - int(e2)
+	ediff := e1 - e2
 	if ediff == 0 {
 		return m1, m2, e1
 	}
@@ -590,24 +620,24 @@ func doToEqualExp(m1 number, e1 expType, m2 number, e2 expType) (number, number,
 	// try to trim trailing zeros for m2.
 	// if we have enough to increase e2 so that it equals e1, return the sum.
 	m2, e2 = trimZeros(m2, e2, e1)
-	if ediff = int(e1) - int(e2); ediff == 0 {
+	if ediff = e1 - e2; ediff == 0 {
 		return m1, m2, e1
 	}
 
 	// next, try to increase m1 and decrease e1 so, that e1 == e2.
-	toMult := log10(maxMantissa / m1)
+	toMult := expType(log10(maxMantissa / m1))
 	if toMult > ediff {
 		toMult = ediff
 	}
-	m1 *= pow10(toMult)
-	e1 -= int8(toMult)
+	m1 *= pow10(int(toMult))
+	e1 -= toMult
 
-	if ediff = int(e1) - int(e2); ediff == 0 {
+	if ediff = e1 - e2; ediff == 0 {
 		return m1, m2, e1
 	}
 
 	// last resort, decrease m2, lose some digits.
-	if toDiv := pow10(ediff); toDiv > 0 {
+	if toDiv := pow10(int(ediff)); toDiv > 0 {
 		m2 /= toDiv
 	} else {
 		m2 = 0
@@ -861,14 +891,15 @@ func addWithExp(m1, m2 number, e expType) Value {
 	return fromMantAndExp(res, e)
 }
 
-func subWithExp(m1, m2 number, e expType) Value {
+func subWithExp(m1, m2 number, e expType) (v Value, neg bool) {
 	var res number
 	if m1 >= m2 {
 		res = m1 - m2
 	} else {
+		neg = true
 		res = m2 - m1
 	}
-	return fromMantAndExp(res, e)
+	return fromMantAndExp(res, e), neg
 }
 
 func uint64Cmp(a, b uint64) int {
@@ -882,7 +913,7 @@ func uint64Cmp(a, b uint64) int {
 	}
 }
 
-func adjustMantExp(m number, e int) Value {
+func adjustMantExp(m number, e expType) Value {
 	// fix too large matissa, or too small exponent
 	for (m > maxMantissa || e < minExponent) && m > 0 && e+1 < maxExponent {
 		m /= 10
@@ -901,5 +932,5 @@ func adjustMantExp(m number, e int) Value {
 	if e > maxExponent {
 		return Max
 	}
-	return fromMantAndExp(m, expType(e))
+	return fromMantAndExp(m, e)
 }
