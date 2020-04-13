@@ -86,11 +86,11 @@ const (
 	delim = '.'
 )
 
-const (
+var (
 	// Max is the maximum possible fixed-point value.
-	Max = Value(number(maxExponent)<<mantBits | (maxMantissa & mantMask))
+	Max = fromMantAndExp(maxMantissa, maxExponent)
 	// Min is the minimum possible fixed-point value.
-	Min = Value(number((1<<(expBits-1)+1))<<mantBits | minMantissa)
+	Min = fromMantAndExp(minMantissa, minExponent)
 )
 
 type posError struct {
@@ -135,7 +135,7 @@ func exp(v Value) expType {
 	exp := expType(rawExp)
 	if rawExp&highestExpBitMask != 0 { // negative exponent
 		rawExp ^= highestExpBitMask // reset negative bit
-		exp = -expType(rawExp)      // make exponent negative
+		exp = -expType(rawExp)      // make exponent positive
 	}
 	return exp
 }
@@ -149,7 +149,7 @@ func split(v Value) (mantissa number, exponent expType) {
 }
 
 func fromMantAndExp(mant number, exp expType) Value {
-	if exp < 0 && needEncodeExp {
+	if needEncodeExp && exp < 0 {
 		// if the exponent is negative and the count of bits is not 8, 16, 32,
 		// to simplify representation we:
 		exp = -exp                        // encode exp as a positive number
@@ -487,17 +487,26 @@ func (v Value) Mul(other Value) Value {
 	// a*10^e1 * b*10^e2 = a * b * 10^(e1+e2)
 	e := int(e1) + int(e2)
 	// perform a 128-bit multiplication
-	hi, lo := bits.Mul64(uint64(m1), uint64(m2))
+	res, eShift := mul64(uint64(m1), uint64(m2))
+	e += eShift
+
+	return adjustMantExp(res, expType(e))
+}
+
+// mul64 performs a 128 bit multiplication,
+// after that it divides the result by 10^e, so that
+// it fits a uint64 value.
+func mul64(a, b uint64) (result uint64, expShift int) {
+	hi, lo := bits.Mul64(a, b)
 	if hi > 0 {
 		// the result overflows uint64, so we'll divide it by a factor of 10,
 		// so that it fits a uint64 value again, and add that factor to the resulting exponent.
-		powDiv := decimalDigits(hi) + 1
+		powDiv := decimalDigits(hi)
 		toDiv := pow10(powDiv)
-		e += int(powDiv)
+		expShift = int(powDiv)
 		lo, _ = bits.Div64(hi, lo, toDiv)
 	}
-
-	return adjustMantExp(lo, expType(e))
+	return lo, expShift
 }
 
 // DivMod calculates such quo and rem, that a = b * quo + rem. If b == 0, Div panics.
