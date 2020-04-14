@@ -748,14 +748,22 @@ func (v Value) toStringsBuilder(builder *strings.Builder) {
 	case e == 0:
 		builder.WriteString(s)
 	case e > 0:
+		zeros := zeroStr(int(e))
 		builder.WriteString(s)
-		builder.WriteString(manyZeros[:int(e)])
+		builder.WriteString(zeros)
+		if moreZeros := int(e) - len(zeros); moreZeros > 0 {
+			builder.WriteString("e" + strconv.Itoa(moreZeros))
+		}
 	default:
 		if diff := len(s) + int(e); diff <= 0 { // add leading zeros and a delimiter
+			zeros := zeroStr(int(-diff))
 			builder.WriteRune('0')
 			builder.WriteRune(delim)
-			builder.WriteString(manyZeros[:-diff])
+			builder.WriteString(zeros)
 			builder.WriteString(s)
+			if moreZeros := -diff - len(zeros); moreZeros > 0 {
+				builder.WriteString("e-" + strconv.Itoa(moreZeros))
+			}
 		} else { // insert a delimeter
 			builder.WriteString(s[:diff])
 			builder.WriteRune(delim)
@@ -942,4 +950,11 @@ func adjustMantExp(m number, e expType) Value {
 		return Max
 	}
 	return fromMantAndExp(m, e)
+}
+
+func zeroStr(l int) string {
+	if l >= len(manyZeros) {
+		l = len(manyZeros) - 1
+	}
+	return manyZeros[:l]
 }
