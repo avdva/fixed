@@ -67,19 +67,20 @@ var (
 
 const (
 	bitsInNumber = unsafe.Sizeof(number(0)) * 8
-	expBits      = 8
-	mantBits     = bitsInNumber - expBits
+	expBits      = 9
+	reservedBits = 0
+	mantBits     = bitsInNumber - expBits - reservedBits
 
 	expMask           = 1<<expBits - 1
-	highestBit        = 1 << (bitsInNumber - 1)
-	highestExpBitMask = highestBit >> mantBits
-	needEncodeExp     = expBits != 8 && expBits != 16 && expBits != 32
-	mantMask          = (highestBit - 1 | highestBit) >> expBits
+	mantMask          = 1<<mantBits - 1
+	highestExpBitMask = 1 << (expBits - 1)
 
-	maxExponent = (1<<(expBits-1) - 1)
+	needEncodeExp = expBits != 8 && expBits != 16 && expBits != 32
+
+	maxExponent = (highestExpBitMask - 1)
 	minExponent = -maxExponent
 	// maxMantissa is 72057594037927935 for a (8,56) number
-	maxMantissa = (1<<(bitsInNumber-expBits) - 1)
+	maxMantissa = mantMask
 	minMantissa = 1
 	maxNumber   = 1<<bitsInNumber - 1
 
@@ -599,7 +600,7 @@ func div(v1, v2 Value) (quo, rem number, e expType) {
 
 	// give it best chances to division.
 	// shift m1 close to the maximum possible number.
-	toMult := log10(maxNumber / m1)
+	toMult := log10(number(maxNumber) / m1)
 	m1 *= pow10(toMult)
 	e -= expType(toMult)
 

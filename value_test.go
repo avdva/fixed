@@ -57,7 +57,7 @@ func TestFromFloat(t *testing.T) {
 		{math.Pow10(minExponent), fromMantAndExp(1, minExponent), ""},
 		{math.Pow10(maxExponent + 1), fromMantAndExp(10, maxExponent), ""},
 		{math.Pow10(minExponent - 1), zero, ""},
-		{float64(15) / 7, fromMantAndExp(21428571428571428, -16), ""},
+		{float64(15) / 7, adjustMantExp(21428571428571428, -16), ""},
 
 		{-1, zero, "bad float number"},
 		{math.Inf(1), zero, "bad float number"},
@@ -772,7 +772,7 @@ func TestDiv(t *testing.T) {
 		},
 		{
 			a: fromMantAndExp(15, 0), b: fromMantAndExp(7, minExponent),
-			div:     fromMantAndExp(21428571428571424, expType(maxExponent-uint64Len(21428571428571424)+1)),
+			div:     fromMantAndExp(214285714285714, expType(maxExponent-uint64Len(214285714285714)+1)),
 			divModQ: fromMantAndExp(21428571, expType(maxExponent-uint64Len(21428571)+1)), divModR: fromMantAndExp(3, -7), prec: -11,
 		},
 		{
