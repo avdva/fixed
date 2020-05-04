@@ -1,3 +1,15 @@
+## 0.7.0 (TBA)
+
+FEATURES:
+
+* Added `Floor`, `Round`, `Ceil`.
+* Added `MustFromString`, `MustFromFloat64`.
+
+IMPROVEMENTS:
+
+* Make all tests pass for expBits = 7, 9.
+* Update `github.com/stretchr/testify` to v1.5.1.
+
 ## 0.6.0 (April 10, 2020)
 
 FIXES:

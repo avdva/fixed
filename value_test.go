@@ -52,7 +52,7 @@ func TestFromFloat(t *testing.T) {
 		{0.012345, fromMantAndExp(12345, -6), ""},
 		{123450000, fromMantAndExp(12345, 4), ""},
 		{maxMantissa / 100, fromMantAndExp(maxMantissa/100, 0), ""},
-		{0.12345e-50, fromMantAndExp(12345, -55), ""},
+		{float64(0.12345) * math.Pow10(minExponent+5), fromMantAndExp(12345, minExponent), ""},
 		{math.Pow10(maxExponent), fromMantAndExp(1, maxExponent), ""},
 		{math.Pow10(minExponent), fromMantAndExp(1, minExponent), ""},
 		{math.Pow10(maxExponent + 1), fromMantAndExp(10, maxExponent), ""},
@@ -115,22 +115,29 @@ func TestFromString(t *testing.T) {
 		{"12.345", fromMantAndExp(12345, -3), ""},
 		{strconv.FormatUint(maxMantissa, 10), fromMantAndExp(maxMantissa, 0), ""},
 		{strconv.FormatUint(maxMantissa/100, 10), fromMantAndExp(maxMantissa/100, 0), ""},
-		{"0.12345e-50", fromMantAndExp(12345, -55), ""},
+		{"0.12345e" + strconv.Itoa(minExponent+5), fromMantAndExp(12345, minExponent), ""},
 		{"1e" + strconv.Itoa(maxExponent+1), fromMantAndExp(10, maxExponent), ""},
 		{"1e" + strconv.FormatInt(minExponent-1, 10), zero, ""},
 		{"123e" + strconv.Itoa(maxExponent+20), Max, ""},
 		{testNumStr + "0", fromMantAndExp(dd, expType(1+e)), ""},
 		{"000" + testNumStr + "00000", fromMantAndExp(dd, expType(5+e)), ""},
 		{"000" + testNumStr + "00000.00000000", fromMantAndExp(dd, expType(5+e)), ""},
-		{testNumStr + debugZeroStr(maxExponent-10), fromMantAndExp(dd, maxExponent-10+expType(e)), ""},
-		{"." + debugZeroStr(maxExponent-10) + testNumStr, fromMantAndExp(dd/pow10(9), minExponent), ""},
+		{testNumStr + debugZeroStr(-minExponent-10), fromMantAndExp(dd, -minExponent-10+expType(e)), ""},
+		{"." + debugZeroStr(-minExponent-10) + testNumStr, fromMantAndExp(dd/pow10(9), minExponent), ""},
+		{"123e10", FromMantAndExp(123, 10), ""},
+		{"123e-10", FromMantAndExp(123, -10), ""},
 		{"", zero, "empty input"},
 		{`"`, zero, "empty input"},
 		{`  ""  `, zero, "parsing failed: unexpected symbol '\"' at pos 3"},
-		{`"   -"`, zero, "negative value"},
+		{`"   -"`, zero, "empty input"},
+		{`"   --"`, zero, "negative value"},
+		{`"   +---"`, zero, "parsing failed: unexpected symbol '-' at pos 6"},
 		{`abc`, zero, "parsing failed: unexpected symbol 'a' at pos 1"},
 		{`  "abc`, zero, "parsing failed: unexpected symbol '\"' at pos 3"},
 		{`   0.00.  `, zero, "parsing failed: unexpected delimeter at pos 8"},
+		{"123e", zero, "parsing failed: error parsing exponent: strconv.ParseInt: parsing \"\": invalid syntax at pos 5"},
+		{"123e-t5", zero, "parsing failed: error parsing exponent: strconv.ParseInt: parsing \"-t5\": invalid syntax at pos 5"},
+		{"123e1" + zeroStr(20), zero, "parsing failed: error parsing exponent: strconv.ParseInt: parsing \"100000000000000000000\": value out of range at pos 5"},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -165,7 +172,7 @@ func TestFromMantAndExp(t *testing.T) {
 	}{
 		{0, 0, 0},
 		{123456, 123456, 0},
-		{123456, 123456, 35},
+		{123456, 123456, maxExponent},
 		{maxMantissa, maxMantissa, maxExponent},
 		{maxMantissa, maxMantissa, minExponent},
 		{maxMantissa, maxMantissa, 1},
@@ -195,7 +202,7 @@ func TestUint64(t *testing.T) {
 		{1234, false, fromMantAndExp(123456, -2)},
 		{0, true, fromMantAndExp(0, 0)},
 		{0, true, fromMantAndExp(0, 127)},
-		{1, true, fromMantAndExp(1e16, -16)},
+		{1, true, fromMantAndExp(1000, -3)},
 
 		{12, true, fromMantAndExp(12000, -3)},
 		{maxMantissa / uint64(1e10), false, fromMantAndExp(maxMantissa, -10)},
@@ -356,11 +363,20 @@ func TestFloat64(t *testing.T) {
 
 func TestString(t *testing.T) {
 	type testItem struct {
-		expected, actual string
+		expected string
+		v        Value
 	}
 	a := assert.New(t)
-	maxMantissaStr := strconv.FormatUint(maxMantissa, 10)
+	mm := uint64(maxMantissa)
+	maxMantissaStr := strconv.FormatUint(mm, 10)
+	if len(maxMantissaStr) > maxExponent {
+		mm /= pow10(len(maxMantissaStr) - maxExponent)
+		maxMantissaStr = maxMantissaStr[:maxExponent]
+	}
 	addE := func(zeros int, neg bool) string {
+		if zeros < 0 {
+			return ""
+		}
 		l := len(zeroStr(zeros))
 		if l == zeros {
 			return ""
@@ -372,25 +388,27 @@ func TestString(t *testing.T) {
 		return result + strconv.Itoa(zeros-l)
 	}
 	tests := []testItem{
-		{"123456", fromMantAndExp(123456, 0).String()},
-		{"0.123456", fromMantAndExp(123456, -6).String()},
-		{"0.0000123456", fromMantAndExp(123456, -10).String()},
-		{"0.00123456", fromMantAndExp(123456, -8).String()},
-		{"123.456", fromMantAndExp(123456, -3).String()},
-		{"1.23456", fromMantAndExp(123456, -5).String()},
-		{"0", fromMantAndExp(0, 3).String()},
-		{"0", fromMantAndExp(0, 0).String()},
-		{"1", fromMantAndExp(10000000000000000, -16).String()},
-		{maxMantissaStr, fromMantAndExp(maxMantissa, 0).String()},
-		{maxMantissaStr + zeroStr(maxExponent) + addE(maxExponent, false), fromMantAndExp(maxMantissa, maxExponent).String()},
+		{"123456", fromMantAndExp(123456, 0)},
+		{"0.123456", fromMantAndExp(123456, -6)},
+		{"0.0000123456", fromMantAndExp(123456, -10)},
+		{"0.00123456", fromMantAndExp(123456, -8)},
+		{"123.456", fromMantAndExp(123456, -3)},
+		{"1.23456", fromMantAndExp(123456, -5)},
+		{"0", fromMantAndExp(0, 3)},
+		{"0", fromMantAndExp(0, 0)},
+		{"1", fromMantAndExp(1000, -3)},
+		{maxMantissaStr, fromMantAndExp(mm, 0)},
+		{maxMantissaStr + zeroStr(maxExponent) + addE(maxExponent, false), fromMantAndExp(mm, maxExponent)},
 		{
-			"0." + zeroStr(maxExponent-len(maxMantissaStr)) + maxMantissaStr + addE(maxExponent-len(maxMantissaStr), true),
-			fromMantAndExp(maxMantissa, minExponent).String(),
+			"0." + zeroStr(-minExponent-len(maxMantissaStr)) + maxMantissaStr + addE(-minExponent-len(maxMantissaStr), true),
+			fromMantAndExp(mm, minExponent),
 		},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			a.Equal(item.expected, item.actual)
+			s := item.v.String()
+			a.Equal(item.expected, s)
+			a.Equal(item.v.Normalized(), MustFromString(s))
 		})
 	}
 }
@@ -402,6 +420,10 @@ func TestJSON(t *testing.T) {
 	}
 	a := assert.New(t)
 	mm := uint64(maxMantissa)
+	me := expType(maxExponent)
+	if me > 18 {
+		me = 18
+	}
 	if decimalDigits(mm) > 15 {
 		// this is to make float64-conversion precise
 		mm /= 1000
@@ -442,21 +464,21 @@ func TestJSON(t *testing.T) {
 			},
 		},
 		{
-			fromMantAndExp(123456, 18),
+			fromMantAndExp(123456, me),
 			[]string{
-				`"123456000000000000000000"`,
-				"123456000000000000000000",
-				fmt.Sprintf(meTemplate, 123456, 18),
-				fmt.Sprintf(meTemplate, 123456, 18),
+				`"123456` + zeroStr(int(me)) + `"`,
+				"123456" + zeroStr(int(me)),
+				fmt.Sprintf(meTemplate, 123456, me),
+				fmt.Sprintf(meTemplate, 123456, me),
 			},
 		},
 		{
-			fromMantAndExp(123456, -18),
+			fromMantAndExp(123456, -me),
 			[]string{
-				`"0.000000000000123456"`,
-				"0.000000000000123456",
-				fmt.Sprintf(meTemplate, 123456, -18),
-				fmt.Sprintf(meTemplate, 123456, -18),
+				`"0.` + zeroStr(int(me)-6) + `123456"`,
+				"0." + zeroStr(int(me)-6) + "123456",
+				fmt.Sprintf(meTemplate, 123456, -me),
+				fmt.Sprintf(meTemplate, 123456, -me),
 			},
 		},
 	}
@@ -464,9 +486,6 @@ func TestJSON(t *testing.T) {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			shortest, shortestIdx, compactModeLen := 0, -1, 0
 			for i, mode := range modes {
-				if i >= len(item.expected) {
-					break
-				}
 				data := item.v.toJSON(mode)
 				if mode != JSONModeFloat { // this mode is not used when JSONModeCompact is set
 					if shortestIdx == -1 || len(data) <= shortest {
@@ -476,8 +495,9 @@ func TestJSON(t *testing.T) {
 				}
 				if mode == JSONModeCompact {
 					compactModeLen = len(data)
+				} else {
+					a.Equal(item.expected[i], string(data), "marshalled value error for mode %v", mode)
 				}
-				a.Equal(item.expected[i], string(data), "marshalled value error for mode %v", mode)
 				var v Value
 				if a.NoError(json.Unmarshal(data, &v)) {
 					if mode == JSONModeFloat {
@@ -487,10 +507,8 @@ func TestJSON(t *testing.T) {
 					}
 				}
 			}
-			if len(item.expected) > JSONModeCompact {
-				if shortestIdx != JSONModeCompact {
-					t.Errorf("shortest mode was not shortest. was %d with len = %d instead of %d", shortestIdx, shortest, compactModeLen)
-				}
+			if shortestIdx != JSONModeCompact {
+				t.Errorf("shortest mode was not shortest. was %d with len = %d instead of %d", shortestIdx, shortest, compactModeLen)
 			}
 		})
 	}
@@ -532,7 +550,7 @@ func TestUnmarshalJSON(t *testing.T) {
 func TestMantUint64(t *testing.T) {
 	type testItem struct {
 		v    Value
-		exp  int
+		exp  int32
 		mant number
 	}
 	a := assert.New(t)
@@ -545,8 +563,8 @@ func TestMantUint64(t *testing.T) {
 		{fromMantAndExp(0, 0), minExponent - 1, 0},
 		{fromMantAndExp(maxMantissa, 5), 10, maxMantissa / 100000},
 		{fromMantAndExp(maxMantissa, 5), 4, maxMantissa},
-		{fromMantAndExp(maxMantissa, 0), uint64Len(maxMantissa) - 1, maxMantissa / uint64(math.Pow10(uint64Len(maxMantissa)-1))},
-		{fromMantAndExp(maxMantissa, 0), uint64Len(maxMantissa), 0},
+		{fromMantAndExp(maxMantissa, 5), 6, maxMantissa / 10},
+		{fromMantAndExp(maxMantissa, 5), 11, maxMantissa / 1000000},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -826,9 +844,9 @@ func TestDiv(t *testing.T) {
 			}
 			div := test.a.Div(test.b)
 			if div.IsZero() || test.b.IsZero() {
-				a.Equal(test.div, div, "%s / %s (diff = %s)", test.a.String(), test.b.String())
+				a.Equal(test.div, div, "%s / %s", test.a.String(), test.b.String())
 			} else {
-				diff, _ := test.div.sub(div)
+				diff, _ := test.div.Sub(div)
 				a.True(diff.Div(test.div).Cmp(MustFromString("0.0000001")) < 0)
 			}
 			q, r := test.a.DivMod(test.b, test.prec)
@@ -838,6 +856,132 @@ func TestDiv(t *testing.T) {
 				"%s / %s", test.a.String(), test.b.String())
 			a.InDelta(test.a.Normalized().Float64(), test.b.Mul(div).Normalized().Float64(),
 				1e-13, "%s / %s", test.a.String(), test.b.String())
+		})
+	}
+}
+
+func TestRound(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a                  Value
+		floor, round, ceil Value
+		prec               int
+	}{
+		{zero, zero, zero, zero, 0},
+		{zero, zero, zero, zero, 5},
+		{zero, zero, zero, zero, -5},
+
+		{
+			MustFromString("123.456"),
+			MustFromString("123.45"),
+			MustFromString("123.46"),
+			MustFromString("123.46"),
+			2,
+		},
+		{
+			MustFromString("123.456"),
+			MustFromString("123.4"),
+			MustFromString("123.5"),
+			MustFromString("123.5"),
+			1,
+		},
+		{
+			MustFromString("123.456"),
+			MustFromString("123"),
+			MustFromString("123"),
+			MustFromString("124"),
+			0,
+		},
+		{
+			MustFromString("123.456"),
+			MustFromString("120"),
+			MustFromString("120"),
+			MustFromString("130"),
+			-1,
+		},
+		{
+			MustFromString("123.456"),
+			MustFromString("100"),
+			MustFromString("100"),
+			MustFromString("200"),
+			-2,
+		},
+		{
+			MustFromString("123.456"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString("0"),
+			-3,
+		},
+		{
+			MustFromString("000.456000"),
+			MustFromString(".45"),
+			MustFromString(".46"),
+			MustFromString(".46"),
+			2,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString("1"),
+			0,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString("0"),
+			-1,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString("0"),
+			-3,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString(".1"),
+			1,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("0"),
+			MustFromString("0"),
+			MustFromString("0"),
+			-7,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			7,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			MustFromString("000.0000123"),
+			8,
+		},
+		{
+			MustFromString("000.0000123"),
+			MustFromString("000.000012"),
+			MustFromString("000.000012"),
+			MustFromString("000.000013"),
+			6,
+		},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			a.Equal(test.floor, test.a.Floor(test.prec), "%s (%d)", test.a, test.prec)
+			a.Equal(test.round, test.a.Round(test.prec), "%s (%d)", test.a, test.prec)
+			a.Equal(test.ceil, test.a.Ceil(test.prec), "%s (%d)", test.a, test.prec)
 		})
 	}
 }
