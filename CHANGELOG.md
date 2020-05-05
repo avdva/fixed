@@ -1,3 +1,10 @@
+## 0.7.0 (May 05, 2020)
+
+FEATURES:
+
+* Project tree has been reorganised. Instead of a one top level pakage it now contains a `dfp` (decimal floating-point) package
+and a `fixed` (fixed-point integer) package.
+
 ## 0.6.0 (April 10, 2020)
 
 FIXES:
