@@ -1,4 +1,4 @@
-module github.com/avdva/fixed
+module github.com/avdva/numeric
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

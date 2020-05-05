@@ -1,6 +1,6 @@
 // Copyright 2020 Aleksandr Demakin. All rights reserved.
 
-package fixed
+package dfp
 
 import (
 	"bytes"

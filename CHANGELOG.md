@@ -2,6 +2,8 @@
 
 FEATURES:
 
+* Project tree has been reorganised. Instead of a one top level pakage it now contains a `dfp` (decimal floating-point) package
+and a `fixed` (fixed-point integer) package.
 * Added `Floor`, `Round`, `Ceil`.
 * Added `MustFromString`, `MustFromFloat64`.
 
