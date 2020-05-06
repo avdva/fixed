@@ -29,7 +29,7 @@ func ExampleValue() {
 	}
 	fmt.Printf("json for value: %s\n", string(data))
 
-	JSONMode = JSONModeME
+	JSONMode = FormatJSONObject
 	data, err = json.Marshal(v1)
 	if err != nil {
 		panic(err)

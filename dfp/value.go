@@ -18,20 +18,22 @@ import (
 )
 
 var (
-	// JSONMode defines the way all values are marshaled into json, see JSONMode* constants.
-	// This variable is not thread-safe, so this should be changed on program start.
+	// JSONMode defines the way all values are marshaled into json.
+	// Either Format* constants or JSONModeCompact can be used.
+	// This variable is not thread-safe, so this should not be changed concurently.
 	JSONMode = JSONModeCompact
 )
 
 const (
-	// JSONModeString produces values as strings, like `"1234.5678"`
-	JSONModeString = iota
-	// JSONModeFloat marshals values as floats, like `1234.5678`.
-	JSONModeFloat
-	// JSONModeME marshals values with mantissa and exponent, like `{"m":123,"e":-5}`.
-	JSONModeME
-	// JSONModeCompact will choose the shortest form between JSONModeString and JSONModeME.
-	JSONModeCompact
+	// FormatString marshals values as strings, like `"1234.5678"`
+	FormatString = iota
+	// FormatFloat marshals values as floats, like `1234.5678`.
+	FormatFloat
+	// FormatJSONObject marshals values with mantissa and exponent, like `{"m":123,"e":-5}`.
+	FormatJSONObject
+
+	// JSONModeCompact will choose the shortest form between FormatString and FormatJSONObject.
+	JSONModeCompact = -1
 )
 
 var (
@@ -52,7 +54,7 @@ var (
 		18, 18, 18, 18, 19,
 	}
 
-	// 145 zeros, 128 for max exponent, 17 for max mantissa
+	// 145 zeros
 	manyZeros = "000000000000000000000000000000000000000000000000000000000000" +
 		"000000000000000000000000000000000000000000000000000000000000" +
 		"0000000000000000000000000"
@@ -199,15 +201,15 @@ func (v Value) MarshalJSON() ([]byte, error) {
 
 func (v Value) toJSON(mode int) []byte {
 	switch mode {
-	case JSONModeFloat:
+	case FormatFloat:
 		return []byte(strconv.FormatFloat(v.Float64(), 'f', -1, 64))
-	case JSONModeME:
+	case FormatJSONObject:
 		return []byte(toMEJSON(v))
 	case JSONModeCompact:
-		if calcStrLen(v) <= jsonMELen(v) {
-			return v.toJSON(JSONModeString)
+		if decimalFormatLen(v)+2 <= jsonMEFormatLen(v) { // +2 for a pair of quotes
+			return v.toJSON(FormatString)
 		}
-		return v.toJSON(JSONModeME)
+		return v.toJSON(FormatJSONObject)
 	default: // marshal as a string
 		var builder strings.Builder
 		builder.WriteRune('"')
@@ -219,7 +221,6 @@ func (v Value) toJSON(mode int) []byte {
 
 func toMEJSON(v Value) string {
 	var builder strings.Builder
-	v = v.Normalized()
 	m, e := split(v)
 	builder.WriteString(jsonParts[0])
 	builder.WriteString(strconv.FormatUint(m, 10))
@@ -838,15 +839,6 @@ func pow10(pow int) uint64 {
 	return decimalFactorTable[pow]
 }
 
-func int64DecimalLen(value int64) int {
-	result := 0
-	if value < 0 {
-		result++
-		value = -value
-	}
-	return result + decimalDigits(uint64(value))
-}
-
 func binaryDigits(value uint64) int {
 	return int(8*unsafe.Sizeof(uint64(0))) - bits.LeadingZeros64(value)
 }
@@ -865,6 +857,15 @@ func decimalDigits(value uint64) int {
 	return digits
 }
 
+func decimalLenInt64(value int64) int {
+	result := 0
+	if value < 0 {
+		result++
+		value = -value
+	}
+	return result + decimalDigits(uint64(value))
+}
+
 func trailingZeros(value uint64) int {
 	var i int
 	if value == 0 {
@@ -877,22 +878,23 @@ func trailingZeros(value uint64) int {
 	return i
 }
 
-func jsonMELen(v Value) int {
-	return jsonLen + decimalDigits(mant(v)) + int64DecimalLen(int64(exp(v)))
+func jsonMEFormatLen(v Value) int {
+	return jsonLen + decimalDigits(mant(v)) + decimalLenInt64(int64(exp(v)))
 }
 
-func calcStrLen(v Value) int {
-	v = v.Normalized()
-	mantLen := decimalDigits(mant(v))
-	// the length of the string. 2 for a pair of quotes plus len of mantissa
-	sLen := 2 + mantLen
+func decimalFormatLen(v Value) int {
+	if v.IsZero() {
+		return 1
+	}
+	sLen := decimalDigits(mant(v))
 	if e := int(exp(v)); e > 0 { // `exp` trailing zeros
 		sLen += e
-	} else {
-		sLen++                             // a delimeter
-		if diff := e + mantLen; diff < 0 { // leading zeros
+	} else if e < 0 {
+		// TODO(avd) - mantissa may have trailing zeros after the delimeter
+		if diff := sLen + e; diff < 0 { // leading zeros
 			sLen += -diff
 		}
+		sLen++ // a delimeter
 	}
 	return sLen
 }

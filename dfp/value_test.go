@@ -431,11 +431,12 @@ func TestJSON(t *testing.T) {
 	maxMantissaStr := strconv.FormatUint(mm, 10)
 	meTemplate := `{"m":%d,"e":%d}`
 
-	modes := []int{JSONModeString, JSONModeFloat, JSONModeME, JSONModeCompact}
+	modes := []int{FormatString, FormatFloat, FormatJSONObject, JSONModeCompact}
 
 	tests := []testItem{
-		{fromMantAndExp(0, maxExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, 0), `"0"`}},
-		{fromMantAndExp(0, minExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, 0), `"0"`}},
+		{fromMantAndExp(0, maxExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, maxExponent), `"0"`}},
+		{fromMantAndExp(0, minExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, minExponent), `"0"`}},
+		{fromMantAndExp(0, 0), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, 0), `"0"`}},
 		{
 			fromMantAndExp(mm, 0),
 			[]string{
@@ -487,7 +488,7 @@ func TestJSON(t *testing.T) {
 			shortest, shortestIdx, compactModeLen := 0, -1, 0
 			for i, mode := range modes {
 				data := item.v.toJSON(mode)
-				if mode != JSONModeFloat { // this mode is not used when JSONModeCompact is set
+				if mode != FormatFloat { // this mode is not used when JSONModeCompact is set
 					if shortestIdx == -1 || len(data) <= shortest {
 						shortest = len(data)
 						shortestIdx = i
@@ -500,14 +501,14 @@ func TestJSON(t *testing.T) {
 				}
 				var v Value
 				if a.NoError(json.Unmarshal(data, &v)) {
-					if mode == JSONModeFloat {
+					if mode == FormatFloat {
 						a.InDelta(item.v.Float64(), v.Float64(), 1e10)
 					} else {
 						a.Equalf(item.v.Normalized(), v, "unmarshalled value error for mode %v", mode)
 					}
 				}
 			}
-			if shortestIdx != JSONModeCompact {
+			if modes[shortestIdx] != JSONModeCompact {
 				t.Errorf("shortest mode was not shortest. was %d with len = %d instead of %d", shortestIdx, shortest, compactModeLen)
 			}
 		})
@@ -785,13 +786,13 @@ func TestDiv(t *testing.T) {
 		},
 		{
 			a: fromMantAndExp(15, 0), b: fromMantAndExp(3, minExponent),
-			div:     fromMantAndExp(5, maxExponent),
-			divModQ: fromMantAndExp(5, maxExponent), divModR: zero, prec: 5,
+			div:     fromMantAndExp(5, -minExponent),
+			divModQ: fromMantAndExp(5, -minExponent), divModR: zero, prec: 5,
 		},
 		{
 			a: fromMantAndExp(15, 0), b: fromMantAndExp(7, minExponent),
-			div:     fromMantAndExp(214285714285714, expType(maxExponent-uint64Len(214285714285714)+1)),
-			divModQ: fromMantAndExp(21428571, expType(maxExponent-uint64Len(21428571)+1)), divModR: fromMantAndExp(3, -7), prec: -11,
+			div:     fromMantAndExp(214285714285714, expType(-minExponent-uint64Len(214285714285714)+1)),
+			divModQ: fromMantAndExp(21428571, expType(-minExponent-uint64Len(21428571)+1)), divModR: fromMantAndExp(3, -7), prec: -11,
 		},
 		{
 			a: fromMantAndExp(15, 0), b: fromMantAndExp(17, 0),
