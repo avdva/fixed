@@ -1,34 +1,12 @@
-# fixed [![GoDoc](https://godoc.org/github.com/avdva/fixed?status.svg)](http://godoc.org/github.com/avdva/fixed) [![CircleCI Build Status](https://circleci.com/gh/avdva/fixed.svg?style=shield)](https://circleci.com/gh/avdva/fixed) [![Go Report Card](https://goreportcard.com/badge/github.com/avdva/fixed)](https://goreportcard.com/report/github.com/avdva/fixed) 
-`fixed` implements a fixed-point number, where both mantissa and exponent are stored in a single number.
-Can be used to represent currency rates with up to 16 digits of precision.
+# numeric [![GoDoc](https://godoc.org/github.com/avdva/numeric?status.svg)](http://godoc.org/github.com/avdva/numeric) [![CircleCI Build Status](https://circleci.com/gh/avdva/numeric.svg?style=shield)](https://circleci.com/gh/avdva/numeric) [![Go Report Card](https://goreportcard.com/badge/github.com/avdva/numeric)](https://goreportcard.com/report/github.com/avdva/numeric) 
+`numeric` implements decimal floating-point (DFP) and fixed-point numbers
 
 ## Installation
-`	$  go get github.com/avdva/fixed`
+`	$  go get github.com/avdva/numeric/...`
 
-## Representation
+## Package content
 
-Value is a positive fixed-point number.
-It currently uses a uint64 value as a data type, where
-8 bits are used for exponent and 56 for mantissa.
+- `dfp` - decimal floating-point numbers.
 
-```
-   63      55                                                     0
-   ________|_______________________________________________________
-   eeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
-```
+See readmes in relevant packages.
 
-Value can be useful for representing numbers like prices in financial services.
-Negative numbers aren't currently supported.
-
-## Usage
-
-To get a value use one of `From{Uint64, String, Float, MantAndExp} `:
-
-```
-	v, err := fixed.FromString("1.23456")
-	if err != nil {
-		panic(err)
-	}
-```
-
-See `value_example_test.go` for more examples.

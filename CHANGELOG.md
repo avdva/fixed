@@ -1,3 +1,19 @@
+## 0.7.0 (May, 08, 2020)
+
+FEATURES:
+
+* Project repository has been renamed to reflect the source code changes.
+* Project tree has been reorganised. Instead of a one top level pakage it now contains a `dfp` (decimal floating-point) package
+and a `fixed` (fixed-point integer) package. Fixed-point numbers are now work-in-progress.
+* dfp: Added `Floor`, `Round`, `Ceil`.
+* dfp: Added `MustFromString`, `MustFromFloat64`.
+* dfp: Value now implements fmt.Formatter, supporting `f`, `e` formats.
+
+IMPROVEMENTS:
+
+* dfp: make all tests pass for expBits = 7, 9.
+* vendor: update `github.com/stretchr/testify` to v1.5.1.
+
 ## 0.6.0 (April 10, 2020)
 
 FIXES:

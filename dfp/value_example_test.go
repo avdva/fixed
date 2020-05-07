@@ -1,6 +1,6 @@
 // Copyright 2020 Aleksandr Demakin. All rights reserved.
 
-package fixed
+package dfp
 
 import (
 	"encoding/json"
@@ -29,7 +29,7 @@ func ExampleValue() {
 	}
 	fmt.Printf("json for value: %s\n", string(data))
 
-	JSONMode = JSONModeME
+	JSONMode = FormatJSONObject
 	data, err = json.Marshal(v1)
 	if err != nil {
 		panic(err)
@@ -42,6 +42,20 @@ func ExampleValue() {
 	}
 	fmt.Printf("%s + %s = %s\n", v4.String(), v1.String(), v4.Add(v1).String())
 
+	sub, neg := v4.Sub(v1)
+	fmt.Printf("%s - %s = ", v4.String(), v1.String())
+	if neg {
+		fmt.Printf("-")
+	}
+	fmt.Printf("%s\n", sub)
+
+	sub, neg = v1.Sub(v4)
+	fmt.Printf("%s - %s = ", v1.String(), v4.String())
+	if neg {
+		fmt.Printf("-")
+	}
+	fmt.Printf("%s\n", sub)
+
 	fmt.Printf("%s * %s = %s\n", v1.String(), v4.String(), v1.Mul(v4).String())
 
 	a, b := FromMantAndExp(45, -2), FromMantAndExp(15, -2)
@@ -53,7 +67,7 @@ func ExampleValue() {
 	q, r = a.DivMod(b, 2)
 	fmt.Printf("%s / %s = %s (%s), prec = 2\n", a.String(), b.String(), q, r)
 	q, r = a.DivMod(b, 0)
-	fmt.Printf("%s / %s = %s (%s), prec = 2\n", a.String(), b.String(), q, r)
+	fmt.Printf("%s / %s = %s (%s), prec = 0\n", a.String(), b.String(), q, r)
 
 	a, b = FromMantAndExp(15, 4), FromMantAndExp(7, 1)
 	q, r = a.DivMod(b, 2)
@@ -66,10 +80,12 @@ func ExampleValue() {
 	// json for value: "1.23456"
 	// json for value and JSONModeME: {"m":123456,"e":-5}
 	// 1234560 + 1.23456 = 1234561.23456
+	// 1234560 - 1.23456 = 1234558.76544
+	// 1.23456 - 1234560 = -1234558.76544
 	// 1.23456 * 1234560 = 1524138.3936
 	// 0.45 / 0.15 = 3
 	// 15 / 7 = 2.142 (0.006), prec = 3
 	// 15 / 7 = 2.14 (0.02), prec = 2
-	// 15 / 7 = 2 (1), prec = 2
+	// 15 / 7 = 2 (1), prec = 0
 	// 150000 / 70 = 2142.85 (0.5), prec = 2
 }
