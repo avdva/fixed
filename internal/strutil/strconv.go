@@ -1,13 +1,16 @@
-package dfp
+package strutil
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/avdva/numeric/internal/mathutil"
 )
 
 const (
@@ -40,17 +43,35 @@ func addPosErrorOffset(err error, offset int) error {
 	return pe
 }
 
-func parse(s string) (digits string, e int32, neg bool, err error) {
+func Parse(s string) (neg bool, e int32, digits string, err error) {
 	s, offset, neg := prepareString(s)
 	if len(s) == 0 {
-		return "", 0, false, fmt.Errorf("empty input")
+		return false, 0, "", fmt.Errorf("empty input")
 	}
 	digits, e, err = doParse(s)
 	if err != nil {
 		// add what we've trimmed before and add +1 to the offset to start indices from 1.
 		err = fmt.Errorf("parsing failed: %w", addPosErrorOffset(err, offset+1))
 	}
-	return digits, e, neg, err
+	return neg, e, digits, err
+}
+
+func FromDigitsAndExp(digits string, e int32, maxDigits int) (uint64, int32, error) {
+	if len(digits) == 0 {
+		return 0, e, nil
+	}
+	if toCut := len(digits) - maxDigits; toCut > 0 {
+		expInc := int32(toCut)
+		if e < 0 {
+			expInc -= -e
+		}
+		if expInc > 0 {
+			e += expInc
+		}
+		digits = digits[:maxDigits]
+	}
+	parsed, err := strconv.ParseUint(digits, 10, 64)
+	return parsed, e, err
 }
 
 // doParse parses given decimal string.
@@ -158,7 +179,8 @@ func removeTrailingZerosString(s string, delimPos int) (result string, e int32) 
 	return s, int32(delimPos - len(s))
 }
 
-func formatMantExp(sign int, mant uint64, exp int32, format rune, w io.Writer) error {
+func FormatMantExp(sign int, mant uint64, exp int32, format rune, w io.Writer) error {
+	mant, exp = mathutil.TrimMantExp(mant, exp, math.MaxInt32)
 	switch format {
 	case 'f', 's':
 		formatAsDecimal(mant, sign, exp, w)

@@ -12,7 +12,7 @@ func ExampleValue() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("v1 as a float = %v, mantissa = %v, uint64 = %v\n", v1.Float64(), v1.MantUint64(), v1.Uint64())
+	fmt.Printf("v1 as a float = %v, mantissa = %v, uint64 = %v\n", v1.Float64(), v1.MantUint64(), OnlyUint64(v1.Uint64()))
 
 	v2, err := FromFloat64(1.23456)
 	if err != nil {
@@ -21,7 +21,7 @@ func ExampleValue() {
 	fmt.Printf("value from string: %s, value from float: %s, values are equal: %v\n", v1.String(), v2.String(), v1.Eq(v2))
 
 	v3 := FromMantAndExp(12345, -4)
-	fmt.Printf("uint64 values for -6 exp %d, %d\n", v1.ToExp(-6).MantUint64(), v3.ToExp(-6).MantUint64())
+	fmt.Printf("uint64 values for -6 exp %d, %d\n", OnlyValue(v1.ScaleMant(-6)).MantUint64(), OnlyValue(v3.ScaleMant(-6)).MantUint64())
 
 	data, err := json.Marshal(v1)
 	if err != nil {

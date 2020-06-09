@@ -3,6 +3,7 @@
 package dfp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,34 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/avdva/numeric/internal/mathutil"
+
 	"github.com/stretchr/testify/assert"
 )
-
-func TestNormFloat64(t *testing.T) {
-	a := assert.New(t)
-	tests := []struct {
-		f   float64
-		res float64
-		e   int
-	}{
-		{0.012345, 1.2345, 2},
-		{12345e50, 1.23455, -54},
-		{0, 0, 0},
-		{1, 1, 0},
-		{10, 10, 0},
-		{-5, 0, 0},
-		{math.Inf(1), 0, 0},
-		{math.Inf(-1), 0, 0},
-		{math.NaN(), 0, 0},
-	}
-	for i, test := range tests {
-		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			f, e := normFloat64(test.f)
-			a.InDelta(test.res, f, 1e10)
-			a.Equal(test.e, e)
-		})
-	}
-}
 
 func TestFromFloat(t *testing.T) {
 	a := assert.New(t)
@@ -48,13 +25,13 @@ func TestFromFloat(t *testing.T) {
 		err string
 	}{
 		{0, zero, ""},
-		{0.012345, fromMantAndExp(12345, -6), ""},
-		{123450000, fromMantAndExp(12345, 4), ""},
-		{maxMantissa / 100, fromMantAndExp(maxMantissa/100, 0), ""},
-		{float64(0.12345) * math.Pow10(minExponent+5), fromMantAndExp(12345, minExponent), ""},
-		{math.Pow10(maxExponent), fromMantAndExp(1, maxExponent), ""},
-		{math.Pow10(minExponent), fromMantAndExp(1, minExponent), ""},
-		{math.Pow10(maxExponent + 1), fromMantAndExp(10, maxExponent), ""},
+		{0.012345, combine(12345, -6), ""},
+		{123450000, combine(12345, 4), ""},
+		{maxMantissa / 100, combine(maxMantissa/100, 0), ""},
+		{float64(0.12345) * math.Pow10(minExponent+5), combine(12345, minExponent), ""},
+		{math.Pow10(maxExponent), combine(1, maxExponent), ""},
+		{math.Pow10(minExponent), combine(1, minExponent), ""},
+		{math.Pow10(maxExponent + 1), combine(10, maxExponent), ""},
 		{math.Pow10(minExponent - 1), zero, ""},
 		{float64(15) / 7, adjustMantExp(21428571428571428, -16), ""},
 
@@ -99,30 +76,30 @@ func TestFromString(t *testing.T) {
 		{`"+.00000   "`, zero, ""},
 		{"  .00000", zero, ""},
 		{`"  .00000"`, zero, ""},
-		{"00001.10000", fromMantAndExp(11, -1), ""},
-		{"+000010.01000", fromMantAndExp(1001, -2), ""},
-		{zeroStr(100) + strconv.FormatUint(maxMantissa, 10) + "." + zeroStr(100), fromMantAndExp(maxMantissa, 0), ""},
-		{strconv.FormatUint(maxMantissa, 10) + "." + zeroStr(100), fromMantAndExp(maxMantissa, 0), ""},
-		{"0.01234500", fromMantAndExp(12345, -6), ""},
-		{"123450000", fromMantAndExp(12345, 4), ""},
-		{"123450000.", fromMantAndExp(12345, 4), ""},
-		{"0123450000.", fromMantAndExp(12345, 4), ""},
-		{"0123450000.0", fromMantAndExp(12345, 4), ""},
-		{".123450000", fromMantAndExp(12345, -5), ""},
-		{"0.123450000", fromMantAndExp(12345, -5), ""},
-		{"012.3450", fromMantAndExp(12345, -3), ""},
-		{"12.345", fromMantAndExp(12345, -3), ""},
-		{strconv.FormatUint(maxMantissa, 10), fromMantAndExp(maxMantissa, 0), ""},
-		{strconv.FormatUint(maxMantissa/100, 10), fromMantAndExp(maxMantissa/100, 0), ""},
-		{"0.12345e" + strconv.Itoa(minExponent+5), fromMantAndExp(12345, minExponent), ""},
-		{"1e" + strconv.Itoa(maxExponent+1), fromMantAndExp(10, maxExponent), ""},
+		{"00001.10000", combine(11, -1), ""},
+		{"+000010.01000", combine(1001, -2), ""},
+		{zeroStr(100) + strconv.FormatUint(maxMantissa, 10) + "." + zeroStr(100), combine(maxMantissa, 0), ""},
+		{strconv.FormatUint(maxMantissa, 10) + "." + zeroStr(100), combine(maxMantissa, 0), ""},
+		{"0.01234500", combine(12345, -6), ""},
+		{"123450000", combine(12345, 4), ""},
+		{"123450000.", combine(12345, 4), ""},
+		{"0123450000.", combine(12345, 4), ""},
+		{"0123450000.0", combine(12345, 4), ""},
+		{".123450000", combine(12345, -5), ""},
+		{"0.123450000", combine(12345, -5), ""},
+		{"012.3450", combine(12345, -3), ""},
+		{"12.345", combine(12345, -3), ""},
+		{strconv.FormatUint(maxMantissa, 10), combine(maxMantissa, 0), ""},
+		{strconv.FormatUint(maxMantissa/100, 10), combine(maxMantissa/100, 0), ""},
+		{"0.12345e" + strconv.Itoa(minExponent+5), combine(12345, minExponent), ""},
+		{"1e" + strconv.Itoa(maxExponent+1), combine(10, maxExponent), ""},
 		{"1e" + strconv.FormatInt(minExponent-1, 10), zero, ""},
 		{"123e" + strconv.Itoa(maxExponent+20), Max, ""},
-		{testNumStr + "0", fromMantAndExp(dd, expType(1+e)), ""},
-		{"000" + testNumStr + "00000", fromMantAndExp(dd, expType(5+e)), ""},
-		{"000" + testNumStr + "00000.00000000", fromMantAndExp(dd, expType(5+e)), ""},
-		{testNumStr + zeroStr(-minExponent-10), fromMantAndExp(dd, -minExponent-10+expType(e)), ""},
-		{"." + zeroStr(-minExponent-10) + testNumStr, fromMantAndExp(dd/pow10(9), minExponent), ""},
+		{testNumStr + "0", combine(dd, expType(1+e)), ""},
+		{"000" + testNumStr + "00000", combine(dd, expType(5+e)), ""},
+		{"000" + testNumStr + "00000.00000000", combine(dd, expType(5+e)), ""},
+		{testNumStr + zeroStr(-minExponent-10), combine(dd, -minExponent-10+expType(e)), ""},
+		{"." + zeroStr(-minExponent-10) + testNumStr, combine(dd/mathutil.Pow10(9), minExponent), ""},
 		{"123e10", FromMantAndExp(123, 10), ""},
 		{"123e-10", FromMantAndExp(123, -10), ""},
 		{"", zero, "empty input"},
@@ -146,6 +123,9 @@ func TestFromString(t *testing.T) {
 					a.Equal(test.v, v, test.s)
 				}
 			} else {
+				a.Panics(func() {
+					MustFromString(test.s)
+				})
 				a.EqualError(err, test.e)
 			}
 		})
@@ -169,7 +149,7 @@ func TestFromMantAndExp(t *testing.T) {
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			v := fromMantAndExp(test.m, test.e)
+			v := combine(test.m, test.e)
 			m, e := split(v)
 			a.Equal(test.e, e)
 			a.Equal(test.mExpected, m)
@@ -185,27 +165,24 @@ func TestUint64(t *testing.T) {
 	}
 	a := assert.New(t)
 	tests := []testItem{
-		{123456, true, fromMantAndExp(123456, 0)},
-		{maxMantissa, true, fromMantAndExp(maxMantissa, 0)},
-		{1234, false, fromMantAndExp(123456, -2)},
-		{0, true, fromMantAndExp(0, 0)},
-		{0, true, fromMantAndExp(0, 127)},
-		{1, true, fromMantAndExp(1000, -3)},
-
-		{12, true, fromMantAndExp(12000, -3)},
-		{maxMantissa / uint64(1e10), false, fromMantAndExp(maxMantissa, -10)},
-		{1, true, fromMantAndExp(1000, -3)},
-
-		{maxMantissa, false, fromMantAndExp(maxMantissa, 1)},
-		{maxMantissa, false, fromMantAndExp(maxMantissa-1, 1)},
-		{maxMantissa, false, fromMantAndExp(maxMantissa/10+1, 1)},
-		{(maxMantissa / 100) * 10, true, fromMantAndExp(maxMantissa/100, 1)},
-
-		{(maxMantissa / 10) * 10, true, fromMantAndExp(maxMantissa/10, 1)},
+		{123456, true, combine(123456, 0)},
+		{maxMantissa, true, combine(maxMantissa, 0)},
+		{1234, false, combine(123456, -2)},
+		{0, true, combine(0, 0)},
+		{0, true, combine(0, 127)},
+		{1, true, combine(1000, -3)},
+		{12, true, combine(12000, -3)},
+		{maxMantissa / uint64(1e10), false, combine(maxMantissa, -10)},
+		{1, true, combine(1000, -3)},
+		{maxMantissa, false, combine(maxMantissa, 1)},
+		{maxMantissa, false, combine(maxMantissa-1, 1)},
+		{maxMantissa, false, combine(maxMantissa/10+1, 1)},
+		{(maxMantissa / 100) * 10, true, combine(maxMantissa/100, 1)},
+		{(maxMantissa / 10) * 10, true, combine(maxMantissa/10, 1)},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			u, exact := item.v.toUint64()
+			u, exact := item.v.Uint64()
 			a.Equal(item.expected, u)
 			a.Equal(item.exact, exact)
 
@@ -222,21 +199,21 @@ func TestNormalize(t *testing.T) {
 	}
 	a := assert.New(t)
 	tests := []testItem{
-		{zero, fromMantAndExp(0, 0)},
-		{zero, fromMantAndExp(0, 3)},
-		{fromMantAndExp(123, 2), fromMantAndExp(12300, 0)},
-		{fromMantAndExp(123, 3), fromMantAndExp(12300, 1)},
-		{fromMantAndExp(123, 0), fromMantAndExp(123, 0)},
-		{fromMantAndExp(123, 0), fromMantAndExp(123000000000, -9)},
-		{fromMantAndExp(123, 5), fromMantAndExp(123000000000, -4)},
-		{fromMantAndExp(123456789, 0), fromMantAndExp(123456789, 0)},
-		{fromMantAndExp(123456789, 4), fromMantAndExp(123456789, 4)},
-		{fromMantAndExp(12345, minExponent+4), fromMantAndExp(123450000, minExponent)},
+		{zero, combine(0, 0)},
+		{zero, combine(0, 3)},
+		{combine(123, 2), combine(12300, 0)},
+		{combine(123, 3), combine(12300, 1)},
+		{combine(123, 0), combine(123, 0)},
+		{combine(123, 0), combine(123000000000, -9)},
+		{combine(123, 5), combine(123000000000, -4)},
+		{combine(123456789, 0), combine(123456789, 0)},
+		{combine(123456789, 4), combine(123456789, 4)},
+		{combine(12345, minExponent+4), combine(123450000, minExponent)},
 
-		{fromMantAndExp(12345, maxExponent), fromMantAndExp(123450, maxExponent-1)},
-		{fromMantAndExp(123450, maxExponent), fromMantAndExp(1234500, maxExponent-1)},
-		{fromMantAndExp(1234500, maxExponent), fromMantAndExp(12345000, maxExponent-1)},
-		{fromMantAndExp(1, minExponent+16), fromMantAndExp(1e16, minExponent)},
+		{combine(12345, maxExponent), combine(123450, maxExponent-1)},
+		{combine(123450, maxExponent), combine(1234500, maxExponent-1)},
+		{combine(1234500, maxExponent), combine(12345000, maxExponent-1)},
+		{combine(1, minExponent+16), combine(1e16, minExponent)},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -270,7 +247,7 @@ func TestToEqualExp(t *testing.T) {
 			maxMantissa,
 			maxExponent - expType(digitsInMaxMantissa) + 1,
 			maxMantissa,
-			maxMantissa / pow10(digitsInMaxMantissa-1),
+			maxMantissa / mathutil.Pow10(digitsInMaxMantissa-1),
 			maxExponent,
 		},
 		{maxMantissa, maxExponent, maxMantissa, maxExponent - expType(digitsInMaxMantissa), maxMantissa, 0, maxExponent},
@@ -280,7 +257,7 @@ func TestToEqualExp(t *testing.T) {
 			maxMantissa,
 			minExponent,
 			maxMantissa,
-			maxMantissa / (pow10(digitsInMaxMantissa - 1)),
+			maxMantissa / (mathutil.Pow10(digitsInMaxMantissa - 1)),
 			minExponent + +expType(digitsInMaxMantissa) - 1,
 		},
 		{
@@ -298,7 +275,7 @@ func TestToEqualExp(t *testing.T) {
 			maxMantissa,
 			minExponent,
 			(maxMantissa / 1000) * 1000,
-			maxMantissa / pow10(digitsInMaxMantissa-2),
+			maxMantissa / mathutil.Pow10(digitsInMaxMantissa-2),
 			minExponent + expType(digitsInMaxMantissa) - 2,
 		},
 		{maxMantissa, minExponent + 12, 1e15, minExponent, maxMantissa, 1000, minExponent + 12},
@@ -332,15 +309,15 @@ func TestFloat64(t *testing.T) {
 	}
 	a := assert.New(t)
 	tests := []testItem{
-		{0, fromMantAndExp(0, 0).Float64()},
-		{123456, fromMantAndExp(123456, 0).Float64()},
-		{0.123456, fromMantAndExp(123456, -6).Float64()},
-		{456.789, fromMantAndExp(456789, -3).Float64()},
-		{123 * math.Pow10(maxExponent), fromMantAndExp(123, maxExponent).Float64()},
-		{0, fromMantAndExp(0, 3).Float64()},
-		{0, fromMantAndExp(0, 0).Float64()},
-		{float64(maxMantissa) * math.Pow10(maxExponent), fromMantAndExp(maxMantissa, maxExponent).Float64()},
-		{float64(maxMantissa) * math.Pow10(minExponent), fromMantAndExp(maxMantissa, minExponent).Float64()},
+		{0, combine(0, 0).Float64()},
+		{123456, combine(123456, 0).Float64()},
+		{0.123456, combine(123456, -6).Float64()},
+		{456.789, combine(456789, -3).Float64()},
+		{123 * math.Pow10(maxExponent), combine(123, maxExponent).Float64()},
+		{0, combine(0, 3).Float64()},
+		{0, combine(0, 0).Float64()},
+		{float64(maxMantissa) * math.Pow10(maxExponent), combine(maxMantissa, maxExponent).Float64()},
+		{float64(maxMantissa) * math.Pow10(minExponent), combine(maxMantissa, minExponent).Float64()},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -358,7 +335,7 @@ func TestString(t *testing.T) {
 	mm := uint64(maxMantissa)
 	maxMantissaStr := strconv.FormatUint(mm, 10)
 	if len(maxMantissaStr) > maxExponent {
-		mm /= pow10(len(maxMantissaStr) - maxExponent)
+		mm /= mathutil.Pow10(len(maxMantissaStr) - maxExponent)
 		maxMantissaStr = maxMantissaStr[:maxExponent]
 	}
 	addE := func(zeros int, neg bool) string {
@@ -376,20 +353,20 @@ func TestString(t *testing.T) {
 		return result + strconv.Itoa(zeros-l)
 	}
 	tests := []testItem{
-		{"123456", fromMantAndExp(123456, 0)},
-		{"0.123456", fromMantAndExp(123456, -6)},
-		{"0.0000123456", fromMantAndExp(123456, -10)},
-		{"0.00123456", fromMantAndExp(123456, -8)},
-		{"123.456", fromMantAndExp(123456, -3)},
-		{"1.23456", fromMantAndExp(123456, -5)},
-		{"0", fromMantAndExp(0, 3)},
-		{"0", fromMantAndExp(0, 0)},
-		{"1", fromMantAndExp(1000, -3)},
-		{maxMantissaStr, fromMantAndExp(mm, 0)},
-		{maxMantissaStr + zeroStr(maxExponent) + addE(maxExponent, false), fromMantAndExp(mm, maxExponent)},
+		{"123456", combine(123456, 0)},
+		{"0.123456", combine(123456, -6)},
+		{"0.0000123456", combine(123456, -10)},
+		{"0.00123456", combine(123456, -8)},
+		{"123.456", combine(123456, -3)},
+		{"1.23456", combine(123456, -5)},
+		{"0", combine(0, 3)},
+		{"0", combine(0, 0)},
+		{"1", combine(1000, -3)},
+		{maxMantissaStr, combine(mm, 0)},
+		{maxMantissaStr + zeroStr(maxExponent) + addE(maxExponent, false), combine(mm, maxExponent)},
 		{
 			"0." + zeroStr(-minExponent-len(maxMantissaStr)) + maxMantissaStr + addE(-minExponent-len(maxMantissaStr), true),
-			fromMantAndExp(mm, minExponent),
+			combine(mm, minExponent),
 		},
 	}
 	for i, item := range tests {
@@ -408,13 +385,13 @@ func TestFormat(t *testing.T) {
 	}
 	a := assert.New(t)
 	tests := []testItem{
-		{fromMantAndExp(0, 0), "0", "0"},
-		{fromMantAndExp(0, -1), "0", "0"},
-		{fromMantAndExp(0, 1), "0", "0"},
-		{fromMantAndExp(1, 3), "1000", "1e3"},
-		{fromMantAndExp(1000, 0), "1000", "1e3"},
-		{fromMantAndExp(123, 10), "1230000000000", "123e10"},
-		{fromMantAndExp(1234560, -3), "1234.56", "123456e-2"},
+		{combine(0, 0), "0", "0"},
+		{combine(0, -1), "0", "0"},
+		{combine(0, 1), "0", "0"},
+		{combine(1, 3), "1000", "1e3"},
+		{combine(1000, 0), "1000", "1e3"},
+		{combine(123, 10), "1230000000000", "123e10"},
+		{combine(1234560, -3), "1234.56", "123456e-2"},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -439,7 +416,7 @@ func TestJSON(t *testing.T) {
 	if me > 18 {
 		me = 18
 	}
-	if decimalDigits(mm) > 15 {
+	if mathutil.DecimalDigits(mm) > 15 {
 		// this is to make float64-conversion precise
 		mm /= 1000
 	}
@@ -449,11 +426,11 @@ func TestJSON(t *testing.T) {
 	modes := []int{FormatString, FormatFloat, FormatJSONObject, JSONModeCompact}
 
 	tests := []testItem{
-		{fromMantAndExp(0, maxExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, maxExponent), `"0"`}},
-		{fromMantAndExp(0, minExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, minExponent), `"0"`}},
-		{fromMantAndExp(0, 0), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, 0), `"0"`}},
+		{combine(0, maxExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, maxExponent), `"0"`}},
+		{combine(0, minExponent), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, minExponent), `"0"`}},
+		{combine(0, 0), []string{`"0"`, "0", fmt.Sprintf(meTemplate, 0, 0), `"0"`}},
 		{
-			fromMantAndExp(mm, 0),
+			combine(mm, 0),
 			[]string{
 				`"` + maxMantissaStr + `"`,
 				maxMantissaStr,
@@ -462,7 +439,7 @@ func TestJSON(t *testing.T) {
 			},
 		},
 		{
-			fromMantAndExp(123456, 1),
+			combine(123456, 1),
 			[]string{
 				`"1234560"`,
 				"1234560",
@@ -471,7 +448,7 @@ func TestJSON(t *testing.T) {
 			},
 		},
 		{
-			fromMantAndExp(123456, -1),
+			combine(123456, -1),
 			[]string{
 				`"12345.6"`,
 				"12345.6",
@@ -480,7 +457,7 @@ func TestJSON(t *testing.T) {
 			},
 		},
 		{
-			fromMantAndExp(123456, me),
+			combine(123456, me),
 			[]string{
 				`"123456` + zeroStr(int(me)) + `"`,
 				"123456" + zeroStr(int(me)),
@@ -489,7 +466,7 @@ func TestJSON(t *testing.T) {
 			},
 		},
 		{
-			fromMantAndExp(123456, -me),
+			combine(123456, -me),
 			[]string{
 				`"0.` + zeroStr(int(me)-6) + `123456"`,
 				"0." + zeroStr(int(me)-6) + "123456",
@@ -544,9 +521,9 @@ func TestUnmarshalJSON(t *testing.T) {
 		{"1234..44", true, zero},
 		{`"1234..44"`, true, zero},
 
-		{"1234.5", false, fromMantAndExp(12345, -1)},
-		{`"1234.5"`, false, fromMantAndExp(12345, -1)},
-		{`"12345e-1"`, false, fromMantAndExp(12345, -1)},
+		{"1234.5", false, combine(12345, -1)},
+		{`"1234.5"`, false, combine(12345, -1)},
+		{`"12345e-1"`, false, combine(12345, -1)},
 	}
 
 	for i, item := range tests {
@@ -563,28 +540,40 @@ func TestUnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestMantUint64(t *testing.T) {
+func TestScaleMant(t *testing.T) {
 	type testItem struct {
-		v    Value
-		exp  int32
-		mant number
+		v        Value
+		exp      int32
+		expected Value
+		exact    bool
 	}
 	a := assert.New(t)
 	tests := []testItem{
-		{fromMantAndExp(123456, -10), -12, 12345600},
-		{fromMantAndExp(123456, -5), -5, 123456},
-		{fromMantAndExp(12345, -4), -5, 123450},
-		{fromMantAndExp(1234, -3), -5, 123400},
-		{fromMantAndExp(0, 0), maxExponent + 1, maxMantissa},
-		{fromMantAndExp(0, 0), minExponent - 1, 0},
-		{fromMantAndExp(maxMantissa, 5), 10, maxMantissa / 100000},
-		{fromMantAndExp(maxMantissa, 5), 4, maxMantissa},
-		{fromMantAndExp(maxMantissa, 5), 6, maxMantissa / 10},
-		{fromMantAndExp(maxMantissa, 5), 11, maxMantissa / 1000000},
+		{combine(123456, -10), -12, combine(12345600, -12), true},
+		{combine(123456, -5), -5, combine(123456, -5), true},
+		{combine(12345, -4), -5, combine(123450, -5), true},
+		{combine(1234, -3), -5, combine(123400, -5), true},
+		{combine(0, 0), maxExponent + 1, combine(0, maxExponent), false},
+		{combine(0, 0), minExponent - 1, zero, false},
+		{combine(maxMantissa, 5), 10, combine(maxMantissa/100000, 10), false},
+		{combine(maxMantissa, 5), 4, combine(maxMantissa, 4), false},
+		{combine(maxMantissa, 5), 6, combine(maxMantissa/10, 6), false},
+		{combine(maxMantissa, 5), 11, combine(maxMantissa/1000000, 11), false},
+		{combine(1, maxExponent), maxExponent - 20, combine(maxMantissa, maxExponent-20), false},
+		{combine(1, 0), 30, combine(0, 30), false},
+		{combine(1, 1), maxExponent + 1, combine(0, maxExponent), false},
+		{combine(1, 1), minExponent - 1, combine(maxMantissa, minExponent), false},
+		{combine(1, 30), 0, combine(maxMantissa, 0), false},
+		{combine(maxMantissa/10, 5), 3, combine(maxMantissa, 3), false},
+		{combine(maxMantissa/10, 9), 1, combine(maxMantissa, 1), false},
+		{combine(uint64(math.MaxUint64)/1e7, 10), 3, combine(maxMantissa, 3), false},
+		{combine(uint64(math.MaxUint64)/1e7, 10), 13, combine(uint64(math.MaxUint64)/1e10, 13), false},
 	}
 	for i, item := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			a.Equal(item.mant, item.v.ToExp(item.exp).MantUint64())
+			scaled, exact := item.v.ScaleMant(item.exp)
+			a.Equal(item.expected, scaled, scaled.GoString())
+			a.Equal(item.exact, exact, scaled.GoString())
 		})
 	}
 }
@@ -596,15 +585,15 @@ func TestEq(t *testing.T) {
 		eq   bool
 	}{
 		{0, 0, true},
-		{fromMantAndExp(123456, 5), fromMantAndExp(123456, 5), true},
-		{fromMantAndExp(123456, -5), fromMantAndExp(123456, -5), true},
-		{fromMantAndExp(12345600, 5), fromMantAndExp(123456, 7), true},
-		{fromMantAndExp(123456, -5), fromMantAndExp(12345600, -7), true},
-		{Min, fromMantAndExp(minMantissa, minExponent), true},
-		{Max, fromMantAndExp(maxMantissa, maxExponent), true},
+		{combine(123456, 5), combine(123456, 5), true},
+		{combine(123456, -5), combine(123456, -5), true},
+		{combine(12345600, 5), combine(123456, 7), true},
+		{combine(123456, -5), combine(12345600, -7), true},
+		{Min, combine(minMantissa, minExponent), true},
+		{Max, combine(maxMantissa, maxExponent), true},
 
-		{fromMantAndExp((maxMantissa/100)*100, 5), fromMantAndExp(maxMantissa/100, 7), true},
-		{fromMantAndExp((maxMantissa/100)*100, minExponent), fromMantAndExp(maxMantissa/100, minExponent+2), true},
+		{combine((maxMantissa/100)*100, 5), combine(maxMantissa/100, 7), true},
+		{combine((maxMantissa/100)*100, minExponent), combine(maxMantissa/100, minExponent+2), true},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -620,38 +609,38 @@ func TestCmp(t *testing.T) {
 		a, b Value
 		cmp  int
 	}{
-		{fromMantAndExp(0, 5), fromMantAndExp(0, -5), 0},
-		{fromMantAndExp(123456, 5), fromMantAndExp(123456, 5), 0},
-		{fromMantAndExp(123457, 5), fromMantAndExp(123456, 5), 1},
-		{fromMantAndExp(123456, -5), fromMantAndExp(123456, -5), 0},
-		{fromMantAndExp(12345600, 5), fromMantAndExp(123456, 7), 0},
-		{fromMantAndExp(12345700, 5), fromMantAndExp(123456, 7), 1},
-		{fromMantAndExp(123456, -5), fromMantAndExp(12345600, -7), 0},
-		{fromMantAndExp(123456, -5), fromMantAndExp(12345700, -7), -1},
+		{combine(0, 5), combine(0, -5), 0},
+		{combine(123456, 5), combine(123456, 5), 0},
+		{combine(123457, 5), combine(123456, 5), 1},
+		{combine(123456, -5), combine(123456, -5), 0},
+		{combine(12345600, 5), combine(123456, 7), 0},
+		{combine(12345700, 5), combine(123456, 7), 1},
+		{combine(123456, -5), combine(12345600, -7), 0},
+		{combine(123456, -5), combine(12345700, -7), -1},
 
-		{fromMantAndExp((maxMantissa/100)*100, 5), fromMantAndExp(maxMantissa/100, 7), 0},
-		{fromMantAndExp((maxMantissa/100)*100, minExponent), fromMantAndExp(maxMantissa/100, minExponent+2), 0},
+		{combine((maxMantissa/100)*100, 5), combine(maxMantissa/100, 7), 0},
+		{combine((maxMantissa/100)*100, minExponent), combine(maxMantissa/100, minExponent+2), 0},
 
-		{fromMantAndExp(123456, 5), fromMantAndExp(123450, 5), 1},
+		{combine(123456, 5), combine(123450, 5), 1},
 
-		{fromMantAndExp(123456, 5), fromMantAndExp(12345, 6), 1},
-		{Min, fromMantAndExp(2, minExponent), -1},
+		{combine(123456, 5), combine(12345, 6), 1},
+		{Min, combine(2, minExponent), -1},
 
-		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa-1, 0), 1},
-		{fromMantAndExp(maxMantissa, maxExponent), fromMantAndExp(maxMantissa-1, maxExponent), 1},
-		{fromMantAndExp(maxMantissa, minExponent), fromMantAndExp(maxMantissa-1, minExponent), 1},
+		{combine(maxMantissa, 0), combine(maxMantissa-1, 0), 1},
+		{combine(maxMantissa, maxExponent), combine(maxMantissa-1, maxExponent), 1},
+		{combine(maxMantissa, minExponent), combine(maxMantissa-1, minExponent), 1},
 
 		{0, 0, 0},
-		{fromMantAndExp(0, 100), fromMantAndExp(0, -100), 0},
-		{fromMantAndExp(0, 100), fromMantAndExp(1, -100), -1},
-		{fromMantAndExp(0, 100), fromMantAndExp(0, -100), 0},
+		{combine(0, 100), combine(0, -100), 0},
+		{combine(0, 100), combine(1, -100), -1},
+		{combine(0, 100), combine(0, -100), 0},
 
-		{fromMantAndExp(maxMantissa/10, 0), fromMantAndExp(maxMantissa, -1), -1},
-		{fromMantAndExp(maxMantissa/100, 0), fromMantAndExp(maxMantissa, -2), -1},
+		{combine(maxMantissa/10, 0), combine(maxMantissa, -1), -1},
+		{combine(maxMantissa/100, 0), combine(maxMantissa, -2), -1},
 
-		{fromMantAndExp(123, 5), fromMantAndExp(1234, 6), -1},
-		{fromMantAndExp(123, 5), fromMantAndExp(1234, 5), -1},
-		{fromMantAndExp(1234, 6), fromMantAndExp(1234, 5), 1},
+		{combine(123, 5), combine(1234, 6), -1},
+		{combine(123, 5), combine(1234, 5), -1},
+		{combine(1234, 6), combine(1234, 5), 1},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -667,20 +656,20 @@ func TestAdd(t *testing.T) {
 		a, b, result Value
 	}{
 		{zero, zero, zero},
-		{fromMantAndExp(0, 1), zero, zero},
-		{fromMantAndExp(1234567, 0), zero, fromMantAndExp(1234567, 0)},
-		{fromMantAndExp(1234567, 0), fromMantAndExp(1234567, 0), fromMantAndExp(1234567*2, 0)},
+		{combine(0, 1), zero, zero},
+		{combine(1234567, 0), zero, combine(1234567, 0)},
+		{combine(1234567, 0), combine(1234567, 0), combine(1234567*2, 0)},
 
-		{fromMantAndExp(12345, 5), fromMantAndExp(123450, 4), fromMantAndExp(12345*2, 5)},
-		{fromMantAndExp(12345, 5), fromMantAndExp(123456, 4), fromMantAndExp(123450+123456, 4)},
+		{combine(12345, 5), combine(123450, 4), combine(12345*2, 5)},
+		{combine(12345, 5), combine(123456, 4), combine(123450+123456, 4)},
 
-		{fromMantAndExp(maxMantissa/100, 0), fromMantAndExp(maxMantissa/100, 1), fromMantAndExp(maxMantissa/100+(maxMantissa/100)*10, 0)},
-		{fromMantAndExp(maxMantissa-8, 10), fromMantAndExp(8, 8), fromMantAndExp(maxMantissa-8, 10)},
-		{fromMantAndExp(maxMantissa/100, 10), fromMantAndExp(8, 8), fromMantAndExp((maxMantissa/100)*100+8, 8)},
-		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 8), fromMantAndExp((maxMantissa+maxMantissa/number(1e8))/10, 9)},
+		{combine(maxMantissa/100, 0), combine(maxMantissa/100, 1), combine(maxMantissa/100+(maxMantissa/100)*10, 0)},
+		{combine(maxMantissa-8, 10), combine(8, 8), combine(maxMantissa-8, 10)},
+		{combine(maxMantissa/100, 10), combine(8, 8), combine((maxMantissa/100)*100+8, 8)},
+		{combine(maxMantissa, 0), combine(maxMantissa, 8), combine((maxMantissa+maxMantissa/number(1e8))/10, 9)},
 
-		{fromMantAndExp(maxMantissa, 0), fromMantAndExp(maxMantissa, 0), fromMantAndExp((maxMantissa*2)/10, 1)},
-		{fromMantAndExp(maxMantissa-1, maxExponent), fromMantAndExp(maxMantissa, maxExponent), Max},
+		{combine(maxMantissa, 0), combine(maxMantissa, 0), combine((maxMantissa*2)/10, 1)},
+		{combine(maxMantissa-1, maxExponent), combine(maxMantissa, maxExponent), Max},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -692,41 +681,41 @@ func TestAdd(t *testing.T) {
 
 func TestMul(t *testing.T) {
 	a := assert.New(t)
-	onlyMant := func(m uint64, _ int) uint64 { return m }
+	onlyMant := func(m uint64, _ int32) uint64 { return m }
 	tests := []struct {
 		a, b, result Value
 	}{
 		{zero, zero, zero},
-		{fromMantAndExp(0, 1), zero, zero},
-		{fromMantAndExp(1234567, 0), zero, zero},
-		{fromMantAndExp(1234567, 0), fromMantAndExp(1234567, 0), fromMantAndExp(1234567*1234567, 0)},
-		{fromMantAndExp(1234560, 0), fromMantAndExp(123456, -5), fromMantAndExp(15241383936, -4)},
-		{fromMantAndExp(1, maxExponent), fromMantAndExp(1, 4), fromMantAndExp(10000, maxExponent)},
+		{combine(0, 1), zero, zero},
+		{combine(1234567, 0), zero, zero},
+		{combine(1234567, 0), combine(1234567, 0), combine(1234567*1234567, 0)},
+		{combine(1234560, 0), combine(123456, -5), combine(15241383936, -4)},
+		{combine(1, maxExponent), combine(1, 4), combine(10000, maxExponent)},
 		{
-			fromMantAndExp(maxMantissa, 0),
-			fromMantAndExp(1e9, 0),
-			fromMantAndExp(maxMantissa, 9),
+			combine(maxMantissa, 0),
+			combine(1e9, 0),
+			combine(maxMantissa, 9),
 		},
 		{
-			fromMantAndExp(maxMantissa, 1),
-			fromMantAndExp(1e9, 0),
-			fromMantAndExp(maxMantissa, 10),
+			combine(maxMantissa, 1),
+			combine(1e9, 0),
+			combine(maxMantissa, 10),
 		},
-		{fromMantAndExp(1, minExponent), fromMantAndExp(1, -1), zero},
-		{fromMantAndExp(1, minExponent), fromMantAndExp(123456, -3), fromMantAndExp(123, minExponent)},
+		{combine(1, minExponent), combine(1, -1), zero},
+		{combine(1, minExponent), combine(123456, -3), combine(123, minExponent)},
 		{
-			fromMantAndExp(maxMantissa, minExponent),
-			fromMantAndExp(1, -10),
-			fromMantAndExp(maxMantissa/uint64(1e10), minExponent),
+			combine(maxMantissa, minExponent),
+			combine(1, -10),
+			combine(maxMantissa/uint64(1e10), minExponent),
 		},
-		{fromMantAndExp(maxMantissa, maxExponent), fromMantAndExp(maxMantissa, 0), Max},
-		{fromMantAndExp(maxMantissa/10, 1), fromMantAndExp(6, 0), fromMantAndExp((maxMantissa/10)*6, 1)},
-		{fromMantAndExp(maxMantissa/10, 1), fromMantAndExp(20, 0), adjustMantExp(onlyMant(mul64((maxMantissa/10)*10, 2)), 1)},
-		{fromMantAndExp(111111111111111, 0), fromMantAndExp(500, maxExponent), fromMantAndExp(55555555555555500, maxExponent)},
-		{fromMantAndExp(10000000000000000, 5), fromMantAndExp(maxMantissa, 5), fromMantAndExp(maxMantissa, 26)},
-		{fromMantAndExp(1, minExponent), fromMantAndExp(1, -1), zero},
-		{fromMantAndExp(10, minExponent), fromMantAndExp(1, -1), fromMantAndExp(1, minExponent)},
-		{fromMantAndExp(maxMantissa, minExponent), fromMantAndExp(1, -10), fromMantAndExp(maxMantissa/number(1e10), minExponent)},
+		{combine(maxMantissa, maxExponent), combine(maxMantissa, 0), Max},
+		{combine(maxMantissa/10, 1), combine(6, 0), combine((maxMantissa/10)*6, 1)},
+		{combine(maxMantissa/10, 1), combine(20, 0), adjustMantExp(onlyMant(mathutil.Mul64((maxMantissa/10)*10, 2)), 1)},
+		{combine(111111111111111, 0), combine(500, maxExponent), combine(55555555555555500, maxExponent)},
+		{combine(10000000000000000, 5), combine(maxMantissa, 5), combine(maxMantissa, 26)},
+		{combine(1, minExponent), combine(1, -1), zero},
+		{combine(10, minExponent), combine(1, -1), combine(1, minExponent)},
+		{combine(maxMantissa, minExponent), combine(1, -10), combine(maxMantissa/number(1e10), minExponent)},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
@@ -747,107 +736,107 @@ func TestDiv(t *testing.T) {
 		prec             int
 	}{
 		{a: zero, b: zero, panics: true},
-		{a: fromMantAndExp(0, 1), b: zero, panics: true},
-		{a: zero, b: fromMantAndExp(1234567, 0)},
+		{a: combine(0, 1), b: zero, panics: true},
+		{a: zero, b: combine(1234567, 0)},
 		{
-			a: fromMantAndExp(6, -1), b: fromMantAndExp(15, -2),
-			div:     fromMantAndExp(4, 0),
-			divModQ: fromMantAndExp(4, 0), divModR: zero, prec: 1,
+			a: combine(6, -1), b: combine(15, -2),
+			div:     combine(4, 0),
+			divModQ: combine(4, 0), divModR: zero, prec: 1,
 		},
 		{
-			a: fromMantAndExp(600, 0), b: fromMantAndExp(12, 0),
-			div:     fromMantAndExp(5, 1),
-			divModQ: fromMantAndExp(5, 1), divModR: zero, prec: 1,
+			a: combine(600, 0), b: combine(12, 0),
+			div:     combine(5, 1),
+			divModQ: combine(5, 1), divModR: zero, prec: 1,
 		},
 		{
-			a: fromMantAndExp(123, 0), b: fromMantAndExp(125, -3),
-			div:     fromMantAndExp(984, 0),
-			divModQ: fromMantAndExp(984, 0), divModR: zero, prec: 1,
+			a: combine(123, 0), b: combine(125, -3),
+			div:     combine(984, 0),
+			divModQ: combine(984, 0), divModR: zero, prec: 1,
 		},
 		{
-			a: fromMantAndExp(123, 0), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(17571428571428572, -15),
-			divModQ: fromMantAndExp(17, 0), divModR: fromMantAndExp(4, 0), prec: 0,
+			a: combine(123, 0), b: combine(7, 0),
+			div:     combine(17571428571428572, -15),
+			divModQ: combine(17, 0), divModR: combine(4, 0), prec: 0,
 		},
 		{
-			a: fromMantAndExp(15, -3), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -18),
-			divModQ: fromMantAndExp(2, -3), divModR: fromMantAndExp(1, -3), prec: 3,
+			a: combine(15, -3), b: combine(7, 0),
+			div:     combine(2142857142857143, -18),
+			divModQ: combine(2, -3), divModR: combine(1, -3), prec: 3,
 		},
 		{
-			a: fromMantAndExp(15, -3), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -18),
-			divModQ: zero, divModR: fromMantAndExp(15, -3), prec: 2,
+			a: combine(15, -3), b: combine(7, 0),
+			div:     combine(2142857142857143, -18),
+			divModQ: zero, divModR: combine(15, -3), prec: 2,
 		},
 		{
-			a: fromMantAndExp(123, 0), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(17571428571428572, -15),
-			divModQ: fromMantAndExp(175, -1), divModR: fromMantAndExp(5, -1), prec: 1,
+			a: combine(123, 0), b: combine(7, 0),
+			div:     combine(17571428571428572, -15),
+			divModQ: combine(175, -1), divModR: combine(5, -1), prec: 1,
 		},
 		{
-			a: fromMantAndExp(maxMantissa/1000, 0), b: fromMantAndExp(1000, 0),
-			div:     fromMantAndExp((maxMantissa / 1000), -3),
-			divModQ: fromMantAndExp(maxMantissa/1000, -3), divModR: zero, prec: 1,
+			a: combine(maxMantissa/1000, 0), b: combine(1000, 0),
+			div:     combine((maxMantissa / 1000), -3),
+			divModQ: combine(maxMantissa/1000, -3), divModR: zero, prec: 1,
 		},
 		{
-			a: fromMantAndExp(10, 0), b: fromMantAndExp(3, 0),
-			div:     fromMantAndExp(3333333333333333, -15),
-			divModQ: fromMantAndExp(3, 0), divModR: fromMantAndExp(1, 0), prec: 0,
+			a: combine(10, 0), b: combine(3, 0),
+			div:     combine(3333333333333333, -15),
+			divModQ: combine(3, 0), divModR: combine(1, 0), prec: 0,
 		},
 		{
-			a: fromMantAndExp(10, 0), b: fromMantAndExp(3, 0),
-			div:     fromMantAndExp(3333333333333333, -15),
-			divModQ: fromMantAndExp(333333, -5), divModR: fromMantAndExp(1, -5), prec: 5,
+			a: combine(10, 0), b: combine(3, 0),
+			div:     combine(3333333333333333, -15),
+			divModQ: combine(333333, -5), divModR: combine(1, -5), prec: 5,
 		},
 		{
-			a: fromMantAndExp(15, 0), b: fromMantAndExp(3, minExponent),
-			div:     fromMantAndExp(5, -minExponent),
-			divModQ: fromMantAndExp(5, -minExponent), divModR: zero, prec: 5,
+			a: combine(15, 0), b: combine(3, minExponent),
+			div:     combine(5, -minExponent),
+			divModQ: combine(5, -minExponent), divModR: zero, prec: 5,
 		},
 		{
-			a: fromMantAndExp(15, 0), b: fromMantAndExp(7, minExponent),
-			div:     fromMantAndExp(214285714285714, expType(-minExponent-uint64Len(214285714285714)+1)),
-			divModQ: fromMantAndExp(21428571, expType(-minExponent-uint64Len(21428571)+1)), divModR: fromMantAndExp(3, -7), prec: -11,
+			a: combine(15, 0), b: combine(7, minExponent),
+			div:     combine(214285714285714, expType(-minExponent-uint64Len(214285714285714)+1)),
+			divModQ: combine(21428571, expType(-minExponent-uint64Len(21428571)+1)), divModR: combine(3, -7), prec: -11,
 		},
 		{
-			a: fromMantAndExp(15, 0), b: fromMantAndExp(17, 0),
-			div:     fromMantAndExp(8823529411764706, -16),
-			divModQ: zero, divModR: fromMantAndExp(15, 0), prec: -1,
+			a: combine(15, 0), b: combine(17, 0),
+			div:     combine(8823529411764706, -16),
+			divModQ: zero, divModR: combine(15, 0), prec: -1,
 		},
 		{
-			a: fromMantAndExp(134, 0), b: fromMantAndExp(3, 0),
+			a: combine(134, 0), b: combine(3, 0),
 			div:     adjustMantExp(44666666666666664, -15),
-			divModQ: fromMantAndExp(4, 1), divModR: fromMantAndExp(14, 0), prec: -1,
+			divModQ: combine(4, 1), divModR: combine(14, 0), prec: -1,
 		},
 		{
-			a: fromMantAndExp(134, 0), b: fromMantAndExp(3, 0),
+			a: combine(134, 0), b: combine(3, 0),
 			div:     adjustMantExp(44666666666666664, -15),
-			divModQ: fromMantAndExp(44, 0), divModR: fromMantAndExp(2, 0), prec: 0,
+			divModQ: combine(44, 0), divModR: combine(2, 0), prec: 0,
 		},
 		{
-			a: fromMantAndExp(134, 0), b: fromMantAndExp(3, 0),
+			a: combine(134, 0), b: combine(3, 0),
 			div:     adjustMantExp(44666666666666664, -15),
-			divModQ: zero, divModR: fromMantAndExp(134, 0), prec: -5,
+			divModQ: zero, divModR: combine(134, 0), prec: -5,
 		},
 		{
-			a: fromMantAndExp(15, -2), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -17),
-			divModQ: zero, divModR: fromMantAndExp(15, -2), prec: 0,
+			a: combine(15, -2), b: combine(7, 0),
+			div:     combine(2142857142857143, -17),
+			divModQ: zero, divModR: combine(15, -2), prec: 0,
 		},
 		{
-			a: fromMantAndExp(15, -2), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -17),
-			divModQ: zero, divModR: fromMantAndExp(15, -2), prec: 1,
+			a: combine(15, -2), b: combine(7, 0),
+			div:     combine(2142857142857143, -17),
+			divModQ: zero, divModR: combine(15, -2), prec: 1,
 		},
 		{
-			a: fromMantAndExp(15, -2), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -17),
-			divModQ: zero, divModR: fromMantAndExp(15, -2), prec: 1,
+			a: combine(15, -2), b: combine(7, 0),
+			div:     combine(2142857142857143, -17),
+			divModQ: zero, divModR: combine(15, -2), prec: 1,
 		},
 		{
-			a: fromMantAndExp(15, -2), b: fromMantAndExp(7, 0),
-			div:     fromMantAndExp(2142857142857143, -17),
-			divModQ: fromMantAndExp(2, -2), divModR: fromMantAndExp(1, -2), prec: 2,
+			a: combine(15, -2), b: combine(7, 0),
+			div:     combine(2142857142857143, -17),
+			divModQ: combine(2, -2), divModR: combine(1, -2), prec: 2,
 		},
 	}
 	for i, test := range tests {
@@ -1007,7 +996,7 @@ func TestDecimalDigits(t *testing.T) {
 	tests := []uint64{0, 1, 9, 10, 11, 100, 1000, 1e10, maxMantissa, math.MaxUint64}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			a.Equal(uint64Len(test), decimalDigits(test))
+			a.Equal(uint64Len(test), mathutil.DecimalDigits(test))
 		})
 	}
 }
@@ -1015,8 +1004,8 @@ func TestDecimalDigits(t *testing.T) {
 func BenchmarkEq(b *testing.B) {
 	rnd := rand.New(rand.NewSource(time.Now().Unix()))
 	for i := 0; i < b.N; i++ {
-		v1 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
-		v2 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v1 := combine(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v2 := combine(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
 		v1.Eq(v2)
 	}
 }
@@ -1024,8 +1013,8 @@ func BenchmarkEq(b *testing.B) {
 func BenchmarkCmp(b *testing.B) {
 	rnd := rand.New(rand.NewSource(time.Now().Unix()))
 	for i := 0; i < b.N; i++ {
-		v1 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
-		v2 := fromMantAndExp(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v1 := combine(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
+		v2 := combine(number(rnd.Uint32()), expType(rnd.Int31n(maxExponent)-maxExponent/2))
 		v1.Cmp(v2)
 	}
 }
@@ -1040,11 +1029,15 @@ func uint64Len(value uint64) int {
 }
 
 func cutToDigits(v uint64, digits int) (uint64, int) {
-	dd := decimalDigits(v)
+	dd := mathutil.DecimalDigits(v)
 	diff := dd - digits
 	if diff <= 0 {
 		return v, 0
 	}
-	v /= pow10(diff)
+	v /= mathutil.Pow10(diff)
 	return v, diff
+}
+
+func zeroStr(count int) string {
+	return string(bytes.Repeat([]byte{'0'}, count))
 }

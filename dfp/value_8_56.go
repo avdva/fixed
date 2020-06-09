@@ -27,6 +27,6 @@ func split(v Value) (mantissa number, exponent expType) {
 	return mant(v), exp(v)
 }
 
-func fromMantAndExp(mant number, exp expType) Value {
+func combine(mant number, exp expType) Value {
 	return Value(number(exp+bias)<<mantBits | (mant & mantMask))
 }
