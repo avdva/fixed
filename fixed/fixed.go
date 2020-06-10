@@ -48,8 +48,6 @@ func frac(f Fixed) number {
 }
 
 func fromIntAndFrac(integ int64, frac uint64) Fixed {
-	//  9223372036854775807
-	// 18446744073709551615
 	diff := -dot - mu.DecimalDigits(frac)
 	if diff > 0 {
 		frac *= uint64(mu.Pow10(diff))

@@ -185,3 +185,39 @@ func Int64Sign(v int64) int {
 	}
 	return [...]int{1, -1}[uint64(v)>>63]
 }
+
+func SrhDec(hi, lo uint64, decimals int) (uint64, uint64) {
+	if decimals >= 38 {
+		return 0, 0
+	}
+	exp := Pow10(decimals)
+	lo /= exp
+	if hi > 0 {
+		t := hi % exp
+		hi /= exp
+		if decimals <= 19 {
+			lo += t * Pow10(19-decimals)
+		} else {
+			lo += t / Pow10(decimals-19)
+		}
+	}
+	return hi, lo
+}
+
+func MulDec(x, y int64) (hi, lo int64) {
+	a, b := x/1e9, x%1e9
+	c, d := y/1e9, y%1e9
+	lo = b * d
+	if a|c == 0 {
+		return
+	}
+	hi = a * c
+	t := a*d + c*b
+	t1, t2 := t/1e9, t%1e9
+	lo += t2 * 1e9
+	if carry := lo / 1e18; carry > 0 {
+		hi += t1 + carry
+		lo = lo % 1e18
+	}
+	return
+}

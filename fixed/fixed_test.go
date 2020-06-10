@@ -495,24 +495,3 @@ func BenchmarkMulDecimal(b *testing.B) {
 		f0.Mul(f1)
 	}
 }
-
-func mulDec(x, y int64) (hi, lo int64) {
-	a, b := x/1e9, x%1e9
-	c, d := y/1e9, y%1e9
-	hi = a * c
-	lo = b * d
-	t := a*d + c*b
-	lo += (t % 1e9) * 1e9
-	hi += t / 1e9
-	return
-}
-
-func divDec(hi, lo int64, exp int64) (int64, int64) {
-	lo /= exp
-	if hi > 0 {
-		t := hi % exp
-		hi /= exp
-		lo += t * int64(mu.Pow10(18-mu.DecimalDigits(uint64(t))))
-	}
-	return hi, lo
-}

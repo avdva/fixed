@@ -55,6 +55,47 @@ func TestMul64(t *testing.T) {
 	}
 }
 
+func TestMulDec(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b   int64
+		hi, lo int64
+	}{
+		{999999999999999999, 999999999999999999, 999999999999999998, 000000000000000001},
+		{123456789101214, 98765432100, 12193263, 121259971344569400},
+		{123456789, 987654321, 0, 123456789 * 987654321},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			hi, lo := MulDec(test.a, test.b)
+			a.Equal(test.hi, hi)
+			a.Equal(test.lo, lo)
+		})
+	}
+}
+
+func TestShrDec(t *testing.T) {
+	a := assert.New(t)
+	tests := []struct {
+		a, b     uint64
+		decimals int
+		hi, lo   uint64
+	}{
+		{999999999999999999, 9999999999999999999, 3, 999999999999999, 9999999999999999999},
+		{999999999999999999, 9999999999999999999, 18, 0, 9999999999999999999},
+		{999999999999999999, 999999999999999999, 19, 0, 999999999999999999},
+
+		{math.MaxUint64, math.MaxUint64, 1, math.MaxUint64 / 10, (math.MaxUint64%10)*1e19 + math.MaxUint64/10},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			hi, lo := SrhDec(test.a, test.b, test.decimals)
+			a.Equal(test.hi, hi)
+			a.Equal(test.lo, lo)
+		})
+	}
+}
+
 func BenchmarkInt64Sign(b *testing.B) {
 	var dummy int
 	for i := 0; i < b.N; i++ {
