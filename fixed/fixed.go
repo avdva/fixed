@@ -169,10 +169,18 @@ func (f Fixed) Sub(other Fixed) Fixed {
 }
 
 func (f Fixed) Mul(other Fixed) Fixed {
-	a1, a0 := integ(f), frac(f)
-	b1, b0 := integ(other), frac(other)
+	hi, lo := mu.MulDec(uint64(mu.AbsInt64(int64(f))), uint64(mu.AbsInt64(int64(other))))
+	println(hi, lo)
+	_, lo = mu.SrhDec(hi, lo, 8)
+	i := int64(lo)
+	if !mu.SameSign(int64(f), int64(other)) {
+		i = -i
+	}
+	return Fixed(i)
+	//a1, a0 := integ(f), frac(f)
+	//b1, b0 := integ(other), frac(other)
 	// TODO(avd) - could produce negative values in the case of overflow
-	return Fixed(a1*(b1*scale+b0) + a0*b1 + (a0*b0)/scale)
+	//return Fixed(a1*(b1*scale+b0) + a0*b1 + (a0*b0)/scale)
 }
 
 func (f Fixed) Div(other Fixed) Fixed {

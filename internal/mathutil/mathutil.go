@@ -26,6 +26,11 @@ var (
 	}
 )
 
+const (
+	maxDecUint64       = 9999999999999999999
+	maxDecUint64Digits = 19
+)
+
 // Pow10 returns 10^pow.
 func Pow10(pow int) uint64 {
 	if pow < 0 || pow >= len(decimalFactorTable) {
@@ -186,25 +191,32 @@ func Int64Sign(v int64) int {
 	return [...]int{1, -1}[uint64(v)>>63]
 }
 
-func SrhDec(hi, lo uint64, decimals int) (uint64, uint64) {
-	if decimals >= 38 {
-		return 0, 0
+func SrhDec(x, y uint64, decimals int) (hi uint64, lo uint64) {
+	if decimals < 0 {
+		panic("invalid shift value")
 	}
-	exp := Pow10(decimals)
-	lo /= exp
-	if hi > 0 {
-		t := hi % exp
-		hi /= exp
-		if decimals <= 19 {
-			lo += t * Pow10(19-decimals)
-		} else {
-			lo += t / Pow10(decimals-19)
+	if x > maxDecUint64 || y > maxDecUint64 {
+		panic("not a valid uint64 decimal")
+	}
+	if decimals >= maxDecUint64Digits {
+		if decimals >= maxDecUint64Digits*2 {
+			return 0, 0
+		}
+		y = x / Pow10(decimals-maxDecUint64Digits)
+		x = 0
+	} else {
+		exp := Pow10(decimals)
+		y /= exp
+		if x > 0 {
+			println(x%exp, y, maxDecUint64Digits-decimals)
+			y += (x % exp) * Pow10(maxDecUint64Digits-decimals)
+			x /= exp
 		}
 	}
-	return hi, lo
+	return x, y
 }
 
-func MulDec(x, y int64) (hi, lo int64) {
+func MulDec(x, y uint64) (hi, lo uint64) {
 	a, b := x/1e9, x%1e9
 	c, d := y/1e9, y%1e9
 	lo = b * d
@@ -215,9 +227,22 @@ func MulDec(x, y int64) (hi, lo int64) {
 	t := a*d + c*b
 	t1, t2 := t/1e9, t%1e9
 	lo += t2 * 1e9
+	hi += t1
 	if carry := lo / 1e18; carry > 0 {
-		hi += t1 + carry
+		hi += carry
 		lo = lo % 1e18
 	}
 	return
+}
+
+func MulDec64(a, b uint64) (mant uint64, exp int32) {
+	hi, lo := MulDec(a, b)
+	if hi > 0 {
+		// the result overflows uint64, so we'll divide it by a factor of 10,
+		// so that it fits a uint64 value again, and add that factor to the resulting exponent.
+		dd := DecimalDigits(hi)
+		lo, _ = SrhDec(hi, lo, dd)
+		exp = int32(-dd)
+	}
+	return lo, exp
 }
