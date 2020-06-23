@@ -81,6 +81,19 @@ func Mul64(a, b uint64) (mant uint64, exp int32) {
 	return lo, exp
 }
 
+func Mul64Opt(a, b uint64) (mant uint64, exp int32) {
+	hi, lo := bits.Mul64(a, b)
+	if hi > 0 {
+		// the result overflows uint64, so we'll divide it by a factor of 10,
+		// so that it fits a uint64 value again, and add that factor to the resulting exponent.
+		dd := DecimalDigits(hi)
+		x, _ := divWW(uint(hi), uint(lo), uint(Pow10(dd)))
+		lo = uint64(x)
+		exp = int32(-dd)
+	}
+	return lo, exp
+}
+
 func QuoRem64(m1 uint64, e1 int32, m2 uint64, e2 int32) (quo, rem uint64, e int32) {
 
 	// a*10^e1 / b*10^e2 = (a/b) * 10^(e1-e2)
@@ -208,13 +221,14 @@ func SrhDec(x, y uint64, decimals int) (hi uint64, lo uint64) {
 		exp := Pow10(decimals)
 		y /= exp
 		if x > 0 {
-			println(x%exp, y, maxDecUint64Digits-decimals)
 			y += (x % exp) * Pow10(maxDecUint64Digits-decimals)
 			x /= exp
 		}
 	}
 	return x, y
 }
+
+func divWW(x1, x0, y uint) (q, r uint)
 
 func MulDec(x, y uint64) (hi, lo uint64) {
 	a, b := x/1e9, x%1e9

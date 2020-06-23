@@ -3,6 +3,7 @@ package mathutil
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,7 +96,7 @@ func TestShrDec(t *testing.T) {
 		{maxDecUint64, 0, 6, 9999999999999, 9999990000000000000, false},
 		{maxDecUint64, 0, 19, 0, maxDecUint64, false},
 		{maxDecUint64, 0, 20, 0, maxDecUint64 / 10, false},
-		{152, 413839360000000000, 8, 0, 0, false},
+		{152, 413839360000000000, 8, 0, 15204138393600, false},
 	}
 	for i, test := range tests {
 		if i != len(tests)-1 {
@@ -120,8 +121,8 @@ func BenchmarkInt64Sign(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		dummy += Int64Sign(int64(i)) + Int64Sign(int64(-i)) + Int64Sign(int64(i-i))
 	}
-	// this metric is just to prevent unwanted optimisations in calculations of `dummy.`
-	b.ReportMetric(float64(dummy), "dummy_metric")
+	// this is just to prevent unwanted optimisations in calculations of `dummy.`
+	runtime.KeepAlive(dummy)
 }
 
 func BenchmarkIfSign(b *testing.B) {
@@ -129,8 +130,8 @@ func BenchmarkIfSign(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		dummy += sign(int64(i)) + sign(int64(-i)) + sign(int64(i-i))
 	}
-	// this metric is just to prevent unwanted optimisations in calculations of `dummy.`
-	b.ReportMetric(float64(dummy), "dummy_metric")
+	// this is just to prevent unwanted optimisations in calculations of `dummy.`
+	runtime.KeepAlive(dummy)
 }
 
 func BenchmarkMul64(b *testing.B) {
@@ -139,8 +140,8 @@ func BenchmarkMul64(b *testing.B) {
 		m, e := Mul64(uint64(i*1e10), uint64(i*1e10))
 		dummy += (float64(m) + float64(e))
 	}
-	// this metric is just to prevent unwanted optimisations in calculations of `dummy.`
-	b.ReportMetric(dummy, "dummy_metric")
+	// this is just to prevent unwanted optimisations in calculations of `dummy.`
+	runtime.KeepAlive(dummy)
 }
 
 func BenchmarkMulDec64(b *testing.B) {
@@ -149,8 +150,18 @@ func BenchmarkMulDec64(b *testing.B) {
 		m, e := MulDec64(uint64(i*1e10), uint64(i*1e10))
 		dummy += (float64(m) + float64(e))
 	}
-	// this metric is just to prevent unwanted optimisations in calculations of `dummy.`
-	b.ReportMetric(dummy, "dummy_metric")
+	// this is just to prevent unwanted optimisations in calculations of `dummy.`
+	runtime.KeepAlive(dummy)
+}
+
+func BenchmarkMulOpt(b *testing.B) {
+	var dummy float64
+	for i := 0; i < b.N; i++ {
+		m, e := Mul64Opt(uint64(i*1e10), uint64(i*1e10))
+		dummy += (float64(m) + float64(e))
+	}
+	// this is just to prevent unwanted optimisations in calculations of `dummy.`
+	runtime.KeepAlive(dummy)
 }
 
 func sign(i int64) int {
